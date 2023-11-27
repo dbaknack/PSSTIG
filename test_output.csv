@@ -1,0 +1,13 @@
+"STIG_InternalID","CheckedBy_AdminName","Checked_DateTime_MT","STIG_Resolved","Documentation","Scheduled_To_Resolve","DateTime_Scheduled_MT","Resolution_Approved","Approved_By","Resolved_By","FindingID","Severity","Weight","Rule_ID","Reference_Title","Reference_Publisher","Reference_Subject","Reference_Identifier","Fix_ID","Fix_Text","Check_System","Check_Text","VulnDiscussion","False_Positive","False_Negative","Documentable","Mitigations","Severity_Override_Guidance","Potential_Impacts","Third_Party_Tools","Mitigation_Control","Responsibility","IA_Controls"
+"102","N/A","N/A","false","c:\user\abrah.hernandez\Documents\Knowledge_Base\SOP_Library\Drafts\DISA_MS SQL Server 2016 Instance_3993_F-15261r313922_fix.md","false","N/A","false","N/A","N/A","214046","HIGH","10","SV-214046r879615_rule","DPMS Target MS SQL Server 2016 Instance","DISA","MS SQL Server 2016 Instance","3993","F-15261r313922_fix","Configure or modify applications to prohibit display of passwords in clear text.","C-15263r313921_chk","Determine whether any applications that access the database allow for entry of the account name and password, or PIN.
+
+If any do, determine whether these applications obfuscate authentication data; if they do not, this is a finding.","To prevent the compromise of authentication information, such as passwords and PINs, during the authentication process, the feedback from the information system must not provide any information that would allow an unauthorized user to compromise the authentication mechanism. Obfuscation of user-provided information when typed into the system is a method used in addressing this risk. For example, displaying asterisks when a user types in a password or PIN, is an example of obscuring feedback of authentication information. Database applications may allow for entry of the account name and password as a visible parameter of the application execution command. This practice must be prohibited and disabled to prevent shoulder surfing.","
+","
+","false","
+","
+","
+","
+","
+","
+","
+"
