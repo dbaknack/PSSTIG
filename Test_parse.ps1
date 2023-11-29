@@ -1,9 +1,8 @@
 function Read-MyXML([string]$XMLFilePath){
-    [xml]$MyXMLContent = Get-Content -path ./test.xml
+    [xml]$MyXMLContent = Get-Content -path ./database_xml.xml
     $NameSpace = New-Object System.Xml.XmlNamespaceManager($MyXMLContent.NameTable)
     $NameSpace.AddNamespace("ns", "http://checklists.nist.gov/xccdf/1.1") 
     $MyXMLContent
-     
 }
 
 $MyXMLContent = Read-MyXML -XMLFilePath ".\test.xml" 
@@ -184,4 +183,44 @@ foreach($group in $GroupsList){
 
     }
 }
+
+
+
+
+$namespaceManager = New-Object System.Xml.XmlNamespaceManager($MyXMLContent.NameTable)
+$nodes = $MyXMLContent.SelectNodes("//ns:ElementName", $namespaceManager)
+
+$namespaceManager = New-Object System.Xml.XmlNamespaceManager($MyXMLContent.NameTable)
+
+
+$GroupsList = (Get-Groups -XMLContent $MyXMLContent)
+
+$GroupsList.Rule.check.'check-content'[0]
+
+$RawXML = Get-Content -path .\database_xml.xml
+
+
+$string = ($GroupsList.Rule.check.'check-content'[24])
+
+foreach($string in $GroupsList.Rule.check.'check-content'){
+# split into words
+$words = $string.split(' ')
+$new_words = @()
+foreach($word in $words){
+   $letters = $word.toCharArray()
+   $newletters = @()
+    foreach($letter in $letters){
+        if(($letter -match "\n")){
+            #write-host 'empty char' -ForegroundColor Red
+        }else{
+            $newletters += $letter
+        }
+    }
+    $new_words += $newletters -join ''
+}
+write-host "`n ---------------------------------------"
+#$new_words -join ' '
+"`n ---------------------------------------"+$string | Out-File -FilePath .\checkText.txt -Append
+}
+
 
