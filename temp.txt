@@ -1,0 +1,25 @@
+Determine if SQL Server is configured to allow the use of contained databases.
+In the Object Explorer in SQL Server Management Studio (SSMS), right-click on the server instance, select "Properties", and then select the "Advanced" page.
+If "Enabled Contained Databases" is "True", this is a finding. 
+AND
+In a query interface such as the SSMS Transact-SQL editor, run the statement:
+EXEC sp_configure 'contained database authentication'
+If the returned value in the "config_value" and/or "run_value" column is "1", this is a finding.
+Determine whether SQL Server is configured to use only Windows authentication. 
+In the Object Explorer in SQL Server Management Studio (SSMS), right-click on the server instance, select "Properties", and then select the "Security" page. If Windows Authentication Mode is not selected, this is a finding. 
+AND
+In a query interface such as the SSMS Transact-SQL editor, run the statement: 
+SELECT CASE SERVERPROPERTY('IsIntegratedSecurityOnly')   
+ WHEN 1 THEN 'Windows Authentication'   
+ WHEN 0 THEN 'Windows and SQL Server Authentication'   
+END as [Authentication Mode] 
+If the returned value in the "Authentication Mode" column is not "Windows Authentication", this is a finding. 
+Mixed mode (both SQL Server authentication and Windows authentication) is in use. If the need for mixed mode has not been documented and approved, this is a finding. 
+From the documentation, obtain the list of accounts authorized to be managed by SQL Server. 
+Determine the accounts (SQL Logins) actually managed by SQL Server. Run the statement: 
+SELECT name
+FROM sys.database_principals
+WHERE type_desc = 'SQL_USER'
+AND authentication_type_desc = 'DATABASE'; 
+If any accounts listed by the query are not listed in the documentation, this is a finding.
+Documentation must be approved by the ISSO/ISSM.
