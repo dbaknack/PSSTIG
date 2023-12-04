@@ -1,0 +1,13 @@
+{
+  "Enviornmental": {
+    "setup_complete": true,
+    "psstig_parent_path": "./test_path",
+    "use_defaults": false,
+    "stigview_parent_path": "./test_path"
+  },
+  "Dynamic": {
+    "host_name": "MacBook.lan",
+    "OS": 4,
+    "login_name": "alexhernandez"
+  }
+}
