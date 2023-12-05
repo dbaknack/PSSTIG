@@ -1115,3 +1115,8 @@ NORAD | USNORTHCOM |  TEK Systems | Database Administrator
 Phone: (719) 554-0831
 
 E-Mail: Abraham.A.Hernandez5.CTR@mail.mil
+
+$testchcklistobject = Get-Content -path "./New Checklist.json" | convertfrom-json
+$testchcklistobject.stigs.rules
+
+$PSSTIG3.XMLParseOut_Discussion($PS)
