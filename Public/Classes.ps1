@@ -732,9 +732,9 @@ Class PSSTIG{
             'mitigations',
             'potential_impacts',
             'third_party_tools',
-            'mitigation_controls',
+            'mitigation_control',
             'responsability',
-            'security_overwrite_guidance',
+            'security_override_guidance',
             'ia_controls',
             'comments',
             'finding_details'
@@ -1055,17 +1055,18 @@ Class PSSTIG{
         return $Templates
     }
     [psobject]CreateCheckList([string]$CheckList_title,[xml]$xml_rawdata){
+       
         $CheckList_guid     = (New-Guid).Guid
         $Stig_guid          = (New-Guid).Guid
         # the checklist template contains our data
         $CheckListTemplate = @{
-            cklb_version        = [int](($xml_rawdata.xml).Substring(9,1))
+            cklb_version        = "$(($xml_rawdata.xml).Substring(9,1)).0"
             title               = $CheckList_title              # we can create this
             id                  = $CheckList_guid
             stigs               = @()
-            active              = $false                        # test checklist set to false, but need to define somehwhere
-            mode                = 2                             # check list has this as 2, but need to define somehwere
-            has_path            = $true                         # checklist has set to true, but needs to be defined somewhere
+            active              = $true                        # test checklist set to false, but need to define somehwhere
+            mode                = 1                            # check list has this as 2, but need to define somehwere
+            has_path            = $false                         # checklist has set to true, but needs to be defined somewhere
             target_data         = @{
                                     target_type     = "Computing"      # can be empty
                                     host_name       = ""      # can be empty
@@ -1087,51 +1088,9 @@ Class PSSTIG{
             stig_id                 = ""
             realese_info            = ""
             uuid                    = $null
-            reference_identifier    = [Int64]
+            reference_identifier    = ""
             size                    = [int]
             rules                   = @()
-        }
-       
-        # there is any number of rules per stig item
-        $rule_item = @{
-            uuid                        = $null
-            stig_uuid                   = $Stig_guid
-            group_id                    = ""
-            group_id_src                = ""
-            rule_id                     = ""
-            rule_id_src                 = ""
-            weight                      = ""
-            classification              = "Unknown"
-            severity                    = ""
-            rule_version                = ""
-            group_title                 = ""
-            rule_title                  = ""
-            fix_text                    = ""
-            false_positives             = ""
-            false_negatives             = ""
-            discussion                  = ""
-            check_content               = ""
-            documentable                = ""
-            mitigations                 = ""
-            potential_impacts           = ""
-            third_party_tools           = ""
-            mitigation_controls         = ""
-            responsability              = ""
-            security_overwrite_guidance = ""
-            ia_controls                 = ""
-            check_content_ref = @{
-                href = ""
-                name = ""
-            }
-            legacy_ids                  = @()
-            ccis                        = @()
-            group_tree                  = @()
-            createdAt                   = ""
-            UpdateAt                    = ""
-            status                      = "not_reviewed"
-            overrides                   = @{}
-            comments                    = ""
-            finding_details             = ""
         }
        
         $StigListItemTable.uuid                 = $Stig_guid
@@ -1139,7 +1098,7 @@ Class PSSTIG{
         $StigListItemTable.display_name         = $xml_rawdata.Benchmark.group[0].rule.reference.subject
         $StigListItemTable.stig_id              = $xml_rawdata.Benchmark.id
         $StigListItemTable.realese_info         = $xml_rawdata.Benchmark.'plain-text'.'#text'[0]
-        $StigListItemTable.reference_identifier = [Int64]$xml_rawdata.Benchmark.group[0].rule.reference.identifier
+        $StigListItemTable.reference_identifier = $xml_rawdata.Benchmark.group[0].rule.reference.identifier
         $StigListItemTable.size                 = $xml_rawdata.Benchmark.Group.count
        
         # starting at the group level
@@ -1149,50 +1108,94 @@ Class PSSTIG{
             if("$($group_finding.Rule.id)" -match '(SV-.*)(_rule)'){
                 $rule_id_value = $matches[1]
             }
-            $group_finding.Rule.id
+            $rule_item = @{
+                uuid                        = $null
+                stig_uuid                   = $Stig_guid
+                group_id                    = ""
+                group_id_src                = ""
+                rule_id                     = ""
+                rule_id_src                 = ""
+                weight                      = ""
+                classification              = "Unclassified"
+                severity                    = ""
+                rule_version                = ""
+                group_title                 = ""
+                rule_title                  = ""
+                fix_text                    = ""
+                false_positives             = ""
+                false_negatives             = ""
+                discussion                  = ""
+                check_content               = ""
+                reference_identifier        = ""
+                documentable                = ""
+                mitigations                 = ""
+                potential_impacts           = ""
+                third_party_tools           = ""
+                mitigation_control         = ""
+                responsability              = ""
+                security_override_guidance = ""
+                ia_controls                 = ""
+                check_content_ref = @{
+                    href = ""
+                    name = ""
+                }
+                legacy_ids                  = @()
+                ccis                        = @()
+                group_tree                  = @()
+                createdAt                   = ""
+                UpdateAt                    = ""
+                status                      = "not_reviewed"
+                overrides                   = @{}
+                comments                    = ""
+                finding_details             = ""
+            }
             $DateTimeCreated = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-            $rule_stig_uuid = (New-Guid).Guid
-            $rule_item.uuid                         = $rule_stig_uuid
+            $rule_item.uuid                         = (New-Guid).Guid
             $rule_item.stig_uuid                    = $StigListItemTable.uuid
             $rule_item.group_id                     = $group_finding.id
+            $rule_item.reference_identifier         = $StigListItemTable.reference_identifier
             $rule_item.rule_id                      = $rule_id_value
             $rule_item.rule_id_src                  = $group_finding.Rule.id
             $rule_item.weight                       = $group_finding.Rule.weight
-            #$rule_item.classification               = $group_finding.Rule.classification
+            #$rule_item.classification               = "Unclassified"
             $rule_item.severity                     = $group_finding.Rule.severity
             $rule_item.rule_version                 = $group_finding.Rule.version
             $rule_item.rule_title                   = $group_finding.Rule.title
             $rule_item.group_title                  = $group_finding.RULE.title
             $rule_item.fix_text                     = $group_finding.Rule.fixtext.'#text'
             $rule_item.group_id_src                 = $group_finding.id
-            $rule_item.false_positives              = [char]10
-            $rule_item.false_negatives              = [char]10
+            $rule_item.false_positives              = ""
+            $rule_item.false_negatives              = ""
             $rule_item.discussion                   = $DiscussionTable.VulnDiscussion
             $rule_item.check_content                = $group_finding.Rule.check.'check-content'
-            $rule_item.documentable                 = if($DiscussionTable.Documentable -eq 'false'){$false}
+            $rule_item.documentable                 = if($DiscussionTable.Documentable -eq 'false'){'false'}else{'true'}
             $rule_item.mitigations                  = $DiscussionTable.mitigations
-            $rule_item.potential_impacts            = [char]10
-            $rule_item.third_party_tools            = [char]10
-            $rule_item.mitigation_controls          = [char]10
-            $rule_item.responsability               = [char]10
-            $rule_item.security_overwrite_guidance  = $DiscussionTable.SeverityOverrideGuidance
-            $rule_item.ia_controls                  = [char]10
+            $rule_item.potential_impacts            = ""
+            $rule_item.third_party_tools            = ""
+            $rule_item.mitigation_control           = ""
+            $rule_item.responsability               = ""
+            $rule_item.security_override_guidance   = $DiscussionTable.SeverityOverrideGuidance
+            $rule_item.ia_controls                  = ""
             $rule_item.check_content_ref.href       = $group_finding.Rule.check.'check-content-ref'.href
             $rule_item.check_content_ref.Name       = $group_finding.Rule.check.'check-content-ref'.name
             $rule_item.legacy_ids                   = @($group_finding.Rule.ident.'#text'[0..1])
             $rule_item.ccis                         = @($group_finding.Rule.ident.'#text'[-1])
-            $rule_item.group_tree                   = @{
-                                                            id = $group_finding.id
-                                                            title = $group_finding.title
-                                                            description = $group_finding.description
+            $rule_item.group_tree                   += @{
+                                                            id          = $group_finding.id
+                                                            title       = $group_finding.title
+                                                            description = "{0}GroupDescription{1}{0}{2}GroupDescription{1}"
                                                         }
             $rule_item.createdAt                    = $DateTimeCreated
             $rule_item.UpdateAt                     = $DateTimeCreated
             $rule_item.overrides                    = @{}
             $rule_item.comments                     = ""
             $rule_item.finding_details              = ""
+           
+            $rule_item.group_title
             $StigListItemTable.rules += $rule_item
+
         }
+
         $CheckListTemplate.stigs += $StigListItemTable
         return $CheckListTemplate
     }
@@ -1958,9 +1961,70 @@ Function Update-MyCheckList(
         userproperties_table    = $UpdateTheseThings
     })
 }
+Function New-Collection(
+    [string]$collection_name,
+    [bool]$only_create_local_collection,
+    [string]$from_this_xml_data
+){
+    $PSSTIG.CreateACollection(@{
+        collection_name                 = $collection_name
+        only_create_local_collection    = $only_create_local_collection
+        from_this_xml_data              = $from_this_xml_data
+    })
 
+    # we need to tag the collection name
+    $collection_name = "$collection_name-STIGS"
+    $my_properties = $PSSTIG.GetProperty('*')
+    $collection_checklist_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
+    $collection_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
 
+    $xml_file_name = $from_this_xml_data.split("$($PSSTIG.Dynamic.Settings.Separator)")[-1]
+    $collection_path_xml_file = "$($collection_path)$($PSSTIG.Dynamic.Settings.Separator)$($xml_file_name)"
+    [xml]$My_XMLData = Get-Content  $collection_path_xml_file -Raw
+    $MyConverted_Data = $PSSTIG.CreateCheckList($fromSender.checklist_title,$My_XMLData)
 
+    # make a checklist template
+    $checklist_template_name  = "{0}-cl_template.json" -f $collection_name
+    $checklist_Template_file_path = "$collection_path$($PSSTIG.Dynamic.Settings.Separator)$checklist_template_name"
+    $MyConverted_Data | ConvertTo-Json -Depth 6 | Out-File -FilePath  $checklist_Template_file_path
+    $preconverted_data = Get-Content $checklist_Template_file_path -raw
+
+    # data needs to still be cleaned up
+    $replace_1 = $preconverted_data -replace ("\{0\}",'<')
+    $replace_2 = $replace_1 -replace ("\{1\}",'>')
+    $replace_3 = $replace_2 -replace ("\{2\}",'/')
+    $checklist_template_name2 =  "{0}-cl_template.cklb" -f $collection_name
+    $checklist_Template2_file_path = "$collection_path$($PSSTIG.Dynamic.Settings.Separator)$checklist_template_name2"
+    $replace_3 | Out-File -FilePath $checklist_Template2_file_path
+}
+
+Function New-CollectionCheckList(){
+    [array]$hosts,
+    [string]$collection_name
+
+    [string]$collection_name
+    $checklist_name = $collection_name
+    $collection_name = "$collection_name-STIGS"
+    $my_properties = $PSSTIG.GetProperty('*')
+    $collection_checklist_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
+    $collection_folder_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
+
+    $checklist_template_name  = "{0}-cl_template.cklb" -f $collection_name
+    $checklist_Template_file_path = "$collection_path$($PSSTIG.Dynamic.Settings.Separator)$checklist_template_name"
+
+     $my_template_data = Get-Content -path $checklist_Template_file_path
+
+    foreach($h in $hosts){
+        $checklist_tempfile_name  = "$($h)_$($checklist_name)_temp.cklb"
+        "$collection_checklist_path$checklist_tempfile_name"
+        $checklist_file_name  = "$($h)_$($checklist_name).cklb"
+        "$collection_checklist_path$checklist_file_name"
+        New-Item -Path $collection_checklist_path -Name "$checklist_tempfile_name"
+        Set-Content -Path "$collection_checklist_path$checklist_tempfile_name" -Value $my_template_data
+        Copy-Item "$collection_checklist_path$checklist_tempfile_name" -Destination $checklist_file_name
+        Remove-Item "$collection_checklist_path$checklist_tempfile_name"
+    }
+}
 
 
 
