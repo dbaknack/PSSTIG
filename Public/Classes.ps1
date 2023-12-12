@@ -1202,10 +1202,10 @@ Class PSSTIG{
     [psobject]GetCache(){
         $cache_file = $this.Cache.Settings.File
         $jsonObject = (Get-Content -Path $cache_file) | ConvertFrom-Json
-        $hashTable = $jsonObject | ForEach-Object { $_.PSObject.Properties } | ForEach-Object {
+        $hstashTable = $jsonObject | ForEach-Object { $_.PSObject.Properties } | ForEach-Object {
             @{ $_.Name = $_.Value }
         }
-        return $hashTable
+        return $hstashTable
     }
 
     # GetProperty returns all the properties set in the class
@@ -1975,8 +1975,8 @@ Function New-Collection(
     # we need to tag the collection name
     $collection_name = "$collection_name-STIGS"
     $my_properties = $PSSTIG.GetProperty('*')
-    $collection_checklist_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
-    $collection_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
+    $collection_checklist_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
+    $collection_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
 
     $xml_file_name = $from_this_xml_data.split("$($PSSTIG.Dynamic.Settings.Separator)")[-1]
     $collection_path_xml_file = "$($collection_path)$($PSSTIG.Dynamic.Settings.Separator)$($xml_file_name)"
@@ -1999,29 +1999,35 @@ Function New-Collection(
 }
 
 Function New-CollectionCheckList(){
-    [array]$hosts,
+    [array]$this_list_of_hosts,
     [string]$collection_name
+    #[array]$this_list_of_hosts = @('host_1','host_2')
+   # [string]$collection_name = 'SQLInstanceLevel'
+    $checklist_name             = $collection_name
+    $collection_name            = "$collection_name-STIGS"
+    $my_properties              = $PSSTIG.GetProperty('*')
+    $collection_checklist_path  = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
+    $collection_folder_path     = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
 
-    [string]$collection_name
-    $checklist_name = $collection_name
-    $collection_name = "$collection_name-STIGS"
-    $my_properties = $PSSTIG.GetProperty('*')
-    $collection_checklist_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
-    $collection_folder_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
+    $checklist_template_name        = "{0}-cl_template.cklb" -f $collection_name
+    $checklist_Template_file_path   = "$collection_folder_path$($PSSTIG.Dynamic.Settings.Separator)$checklist_template_name"
 
-    $checklist_template_name  = "{0}-cl_template.cklb" -f $collection_name
-    $checklist_Template_file_path = "$collection_path$($PSSTIG.Dynamic.Settings.Separator)$checklist_template_name"
+    # you need to reference the checklist template for the given collection
+    $my_template_data = Get-Content -path $checklist_Template_file_path -raw
 
-     $my_template_data = Get-Content -path $checklist_Template_file_path
+    foreach($hst in $this_list_of_hosts){
+        # 2 names are created here, one is a temp
+        $checklist_tempfile_name    = "$($hst)_$($checklist_name)_temp.cklb"
+        $checklist_file_name        = "$($hst)_$($checklist_name).cklb"
 
-    foreach($h in $hosts){
-        $checklist_tempfile_name  = "$($h)_$($checklist_name)_temp.cklb"
-        "$collection_checklist_path$checklist_tempfile_name"
-        $checklist_file_name  = "$($h)_$($checklist_name).cklb"
-        "$collection_checklist_path$checklist_file_name"
-        New-Item -Path $collection_checklist_path -Name "$checklist_tempfile_name"
+        # in the collection's checklists folder, the temporary file is created
+        New-Item -Path $collection_checklist_path -Name "$checklist_tempfile_name" | Out-Null
+
+        # the template data is then added to the temporary file that was just created
         Set-Content -Path "$collection_checklist_path$checklist_tempfile_name" -Value $my_template_data
-        Copy-Item "$collection_checklist_path$checklist_tempfile_name" -Destination $checklist_file_name
+
+        # the temporary item is then copied in the same directory, and named by the actual checklist name created
+        Copy-Item -Path "$collection_checklist_path$checklist_tempfile_name" -Destination "$collection_checklist_path$checklist_file_name"
         Remove-Item "$collection_checklist_path$checklist_tempfile_name"
     }
 }

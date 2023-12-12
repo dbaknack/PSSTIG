@@ -1,0 +1,13 @@
+{
+  "Enviornmental": {
+    "setup_complete": true,
+    "use_defaults": false,
+    "stigview_parent_path": "\\\\MST3K\\LocalShare\\STIGVIEWERDATA",
+    "psstig_parent_path": "\\\\MST3K\\LocalShare\\PSSTIGDATA"
+  },
+  "Dynamic": {
+    "host_name": "MST3K",
+    "OS": 2,
+    "login_name": "mst3k\\abrah"
+  }
+}

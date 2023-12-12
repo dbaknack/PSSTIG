@@ -1,6 +1,4 @@
-# refer to the readme.md in this module for more on how to use PSSTIG
 
-# use this to import the module
 Import-Module '.\PSSTIG.psm1'
 
 # if needed you can remove the module with the following, but skip it when first running this
@@ -11,18 +9,11 @@ Get-Module -Name "*"
 
 # initialize the module with the following options
 $InitializePSSTIGParams = @{
-
-    # WorkingRootDir will need to be where a path to the directory you plan to keep your checklists
-    WorkingRootDir          = "C:\Users\abraham.hernandez\Documents\Knowledge_Base\Sources_Library"
-    PathTo_StigViewerEXE    = "C:\Users\abraham.hernandez\Documents\Software\STIGViewer_64_3-2-0"
-    # defaults_are currently not an option, just leave this false for now..
+    WorkingRootDir          = "C:\Windows\System32"
+    PathTo_StigViewerEXE    = "G:\Software\STIGVIEWER_64_3-2-0"
     UseDefaults             = $false
-    # both of these options are below are references to folders in your root as defined by you in WorkingRootDir
-    # note: you can use dynamic paths if these locations are in your working path, use full paths if referencing a location
-    #       not in your workingrootdir i.e. (\\remotelocation\path\to\location)
-    PSSTIGParentPath        = "\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\Phase 1\PSSTIGDATA"
-    STIGParentPath          = '.\STIGVIEWERDATA'
-
+    PSSTIGParentPath        = "\\MST3K\LocalShare\PSSTIGDATA"
+    STIGParentPath          = "\\MST3K\LocalShare\STIGVIEWERDATA"
 }
 $PSSTIG = Initialize-PSSTIG @InitializePSSTIGParams
 
@@ -32,19 +23,12 @@ $PSSTIG.RestartStigViewer(@{
     unless_not_currently_running    = $true
 })
 
-# created a checklist container
-# set only_create_local_collection to false to create both a remote and local collection
-# only set to true, when you dont have a local collection but there is a remote location
-$PSSTIG.CreateACollection(@{
-    collection_name                 = 'SQLInstanceLevel'
-    only_create_local_collection    = $false
-    from_this_xml_data              = "C:\Users\abraham.hernandez\Documents\Knowledge_Base\Sources_Library\STIGVIEWERDATA\U_MS_SQL_Server_2016_Y23M10_STIG\U_MS_SQL_Server_2016_Instance_STIG_V2R10_Manual-xccdf.xml"
-})
 
+# you will need to create a collection if you currently dont have one
 $NewCollectionParams = @{
         collection_name                 = 'SQLInstanceLevel'
         only_create_local_collection    = $false
-        from_this_xml_data              = "C:\Users\abraham.hernandez\Documents\Knowledge_Base\Sources_Library\STIGVIEWERDATA\U_MS_SQL_Server_2016_Y23M10_STIG\U_MS_SQL_Server_2016_Instance_STIG_V2R10_Manual-xccdf.xml"
+        from_this_xml_data              = "C:\Sources_Library\U_MS_SQL_Server_2016_Instance_STIG_V2R10_Manual-xccdf.xml"
 }
 New-Collection @NewCollectionParams
 
@@ -91,7 +75,7 @@ $PSSTIG.GetProperty('*')
 # along with the name of the check list at that source location
 # this gets a high order dataset of checklists data, if you want just the checklist data, use Get-FromMyCheckList instead
 # instructions::      checklist_name, checklists source
-$PSSTIG.GetCheckList('Instance_level_stigs','.\PSSTIGDATA')
+$PSSTIG.GetCheckList('SQLInstanceLevel','\\MST3K\LocalShare\PSSTIGDATA')
 
 # the stigviewer now knows where the check list is, but PSSTIG does not, you can run the following command to sync the data from stig viewer over to PSSTIG
 $PSSTIG.SyncCheckListChanged('Instance_level_stigs','.\STIGVIEWERDATA')
