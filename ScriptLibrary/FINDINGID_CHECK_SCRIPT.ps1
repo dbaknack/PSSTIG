@@ -1,3 +1,6 @@
+# script_level : host
+# script_description : checking to see if the sql browser is running or not
+
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
 $CheckResultsTable = @{
     host_name            = ''
@@ -21,5 +24,4 @@ try{
 $elapsed_time = $timer.ElapsedMilliseconds
 $timer.stop()
 $CheckResultsTable.check_duration_milli = $elapsed_time
-
 $CheckResultsTable
