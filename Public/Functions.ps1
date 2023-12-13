@@ -1,3 +1,37 @@
+Function Show-Message{
+    param (
+       [string]$method_name,
+       [string]$message,
+       [string]$message_type
+    )
+    $output_message = "[{0}]:: {1}" -f
+    $method_name,
+    $message
+
+    $message_color = switch($message_type){
+        'feed_back' {
+            "Cyan"
+        }
+        'info'      {
+            "Yellow"
+        }
+        'failed'   {
+            "Red"
+        }
+        'success'   {
+            "Green"
+        }
+        default     {
+            Write-Host "message type '$message_type' is not defined" -ForegroundColor "red"
+            $null
+        }
+    }
+
+    if($null -ne $message_color){
+        Write-Host $output_message -ForegroundColor $message_color
+    }
+}
+
 Function Show-Banner {
 Clear-Host
 $Banner_Logo = `
@@ -24,7 +58,6 @@ $build_details  = `
     - Documentation on how to create checklists can be found in .\Documentation\README.md
     - Reports created during the usage of this utility can be found in .\Reports
 "
-Clear-Host
 $output_msg = '{0}{1}{2}' -f
     $Banner_Logo,
     $line_break,
