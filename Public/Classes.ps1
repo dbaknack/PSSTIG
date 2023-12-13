@@ -67,6 +67,48 @@ Class PSSTIG{
     $ReportsLists = @(
         "Findings"
     )
+    [void]LinkFindingToScript([hashtable]$fromsender){
+        $fromsender = @{}
+        $fromsender
+       
+        # first things first, get the properties
+        $my_properties  = $this.GetProperty('*')
+        $separator      = $this.Dynamic.Settings.Separator
+        # script library should go with the tool
+        $path_to_script_library = "$(Get-ScriptPath)$($separator)ScriptLibrary"
+        $script_library_object = Get-ChildItem -Path $path_to_script_library
+        $scripts_list = @()
+        $script_library_object | ForEach-Object{
+            $scripts_list +=  $_ | Select-Object -Property ('FullName','BaseName','extension')
+        }
+
+        $script_category_table = @{}
+        foreach($script in $scripts_list){
+            if($script.Extension -eq '.ps1'){
+                ($script.BaseName) -match '([0-9]+)_(CHECK|REMEDIATE)_(.*)' | Out-Null
+                $script_id          = $matches[1]
+                $script_type        = $matches[2]
+                $script_simple_name = $matches[3]
+   
+                $script_string  = get-content $script.FullName
+                $script_string[0] -match '(.*) : (.*)' | Out-Null
+                $script_level       = $matches[2]
+   
+                $script_string[1] -match '(.*) : (.*)' | Out-Null
+                $script_description = $matches[2]
+   
+                $script_category_table.add($script_simple_name,@{
+                    finding_id          = $script_id
+                    script_type         = $script_type
+                    script_level        = $script_level
+                    script_description  = $script_description
+                    script_string       = $script_string
+                })
+            }
+
+        }
+        $script_category_table.sqlbrowser_is_running
+    }
     [void]AddXMLDataToCollection([hashtable]$fromSender){
         $method_name    = "AddXMLDataToCollection"
         $output_msg     = $null
@@ -77,6 +119,102 @@ Class PSSTIG{
         "made a copy of your xml data from this location '$($fromSender.from_this_xml_data)', and saved it to this location '$($fromSender.collection_path)'"
         Write-Host $output_msg -ForegroundColor Cyan
 
+    }
+    [psobject]GetChecklistforThisHost([hashtable]$fromSender){
+        $method_name        = "GetChecklistforThisHost"
+        $output_msg         = $null
+        $is_valid_source    = [bool]
+        $separator          = $this.Dynamic.Settings.Separator
+   
+        $my_properties = $this.GetProperty('*')
+        switch($fromSender.from_source){
+            'psstig_parent_path'{
+                $is_valid_source = $true
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $method_name,
+                    "the source you provided '$($fromSender.from_source)' is valid "
+                    write-host $output_msg -ForegroundColor Cyan
+                }
+            }
+            'stig_parent_path'{
+                $is_valid_source = $true
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $method_name,
+                    "the source you provided '$($fromSender.from_source)' is valid "
+                    write-host $output_msg -ForegroundColor Cyan
+                }
+            }
+            default{
+                # this will handle invalid sources provided
+                $is_valid_source = $false
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $method_name,
+                    "the source you provided '$($fromSender.from_source)' is not defined "
+                    write-host $output_msg -ForegroundColor Red
+                }
+            }
+        }
+
+        $matched_checklist_object = $null
+        if($is_valid_source){
+            $collection_name_tagged     = "$($fromSender.collection_name)-STIGS"
+            $collection_checklist_path  = "$($my_properties.$($fromSender.from_source))$($separator)$($collection_name_tagged)$($separator)CHECKLISTS$($separator)"
+
+            $collection_checklist_parsed_namelists = @()
+            $my_collection_checklist = Get-ChildItem -Path $collection_checklist_path
+            $my_collection_checklist | ForEach-Object{
+                $collection_checklist_parsed_namelists += (($_.BaseName -split ('_'))[0])
+            }
+            $collection_checklist_parsed_namelists_edited  =  $collection_checklist_parsed_namelists -replace ('-','\')
+
+            # step through the edited checklists names
+           
+            foreach($checklist in $collection_checklist_parsed_namelists_edited){
+
+
+                # see if the hostname provided matches anything
+                if($fromsender.host_name -eq $checklist){
+                    if($this.DevSettings.DEBUG_ON){
+                        $output_msg = '[{0}]:: {1}' -f
+                        $method_name,
+                        "the hostname provided '$($fromSender.host_name)' matches up to a checklist file..."
+                        Write-Host $output_msg -ForegroundColor Cyan
+                    }
+                    $checklist_name_editedback  = $checklist -replace ('\\','-')
+                    $rebuilt_checklist_name = "$($checklist_name_editedback)_$($fromSender.collection_name)"
+                    # if there is a match, look in the collection checklist object
+                    # and see if it matches up to anything
+                    foreach($checklist_file in $my_collection_checklist){
+                        $matched_checklist_object = $checklist_file | Select-Object -Property *|Where-Object {$_.BaseName -eq $rebuilt_checklist_name}
+                        if($null -ne $matched_checklist_object ){
+                            break
+                        }
+                    }
+                }
+            }
+
+            if($null -ne $matched_checklist_object){
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = '[{0}]:: {1}' -f
+                    $method_name,
+                    "found a check list for the host name provided '$($fromSender.host_name)' in this collection '$($fromSender.collection_name)'"
+                    Write-Host $output_msg -ForegroundColor Cyan
+                }
+ 
+            }else{
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = '[{0}]:: {1}' -f
+                    $method_name,
+                    "did not find any checklist associated with the hostname you provided '$($fromSender.host_name)' in this collection '$($fromSender.collection_name)'"
+                    Write-Host $output_msg -ForegroundColor Red
+                }
+ 
+            }
+        }
+        return $matched_checklist_object
     }
     # this method creaated the folders inside the collection folder
     [void]CreateCollectionChildred([hashtable]$fromSender){
@@ -98,7 +236,6 @@ Class PSSTIG{
         Write-Host $output_msg -ForegroundColor Cyan
 
     }
-
     # this method removes a collection
     [void]RemoveACollection([hashtable]$fromSender){
         $method_name    = "RemoveACollection"
@@ -287,7 +424,6 @@ Class PSSTIG{
             }
         }
     }
-
     # this method creates a collection
     [void]CreateACollection([hashtable]$Fromsender){
        
@@ -526,6 +662,203 @@ Class PSSTIG{
                 Write-Host $outout_msg -ForegroundColor Yellow
             }
         }
+    }
+
+    [psobject]UpdateChecklistForThisHost([hashtable]$fromSender){
+
+        $my_checklist_object = $this.GetChecklistforThisHost(@{
+            host_name           = $fromSender.ForHostName
+            from_source         = $fromSender.FromThisSource
+            collection_name     = $FromSender.FromThisCollection
+        })
+
+        $my_checklist_data = $this.SelectDataFromThisChecklistFile(@{
+            my_checklist_file_object    = $my_checklist_object
+            operator                    = $fromSender.Operator
+            WhereThis                   = $fromSender.Where
+            isThis                      = $fromSender.IsThis
+         
+        })
+
+       return  $my_checklist_data
+    }
+    [psobject]SelectFromCheckThisList([hashtable]$fromSender){
+
+        $my_checklist_object = $this.GetChecklistforThisHost(@{
+            host_name           = $fromSender.ForHostName
+            from_source         = $fromSender.FromThisSource
+            collection_name     = $FromSender.FromThisCollection
+        })
+
+        $my_checklist_data = $this.SelectDataFromThisChecklistFile(@{
+            my_checklist_file_object    = $my_checklist_object
+            operator                    = $fromSender.Operator
+            WhereThis                   = $fromSender.Where
+            isThis                      = $fromSender.IsThis
+         
+        })
+
+       return  $my_checklist_data
+    }
+    [psobject]SelectDataFromThisChecklistFile([hashtable]$Fromsender){
+        $function_name      = "SelectDataFromThisChecklistFile"
+        $output_msg = $null
+        $MyData             = get-content -path ($fromsender.my_checklist_file_object).FullName  -raw| ConvertFrom-Json
+        $filtered_data      = @()
+
+        $operation_invalid  = $false
+        switch($Fromsender.operator){
+            'none'{
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg ="[{0}]:: {1}" -f
+                    $function_name,
+                    "no filters selected, whatever you have set in 'WhereThis', and 'isThis' are not considered in your search"
+               
+                }
+                foreach($finding in $MyData.stigs.Rules){
+                    $filtered_data += $finding | Select-Object -Property *
+                }
+            }
+            'eq'{
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+               
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem | Select-Object -Property * | Where-Object {$_.($Fromsender.WhereThis) -eq ($Fromsender.isThis)}
+                    }
+                }
+            }
+            'ne'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+       
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -ne ($Fromsender.isThis))
+                    }
+                }
+            }
+            'gt'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+               
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -gt ($Fromsender.isThis))
+                    }
+                }
+            }
+            'lt'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -lt ($Fromsender.isThis))
+                    }
+                }
+            }
+            'match'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+                 
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -match ($Fromsender.isThis))
+                    }
+                }
+            }
+            'notmatch'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+             
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -notmatch ($Fromsender.isThis))
+                    }
+                }
+            }
+            'contains'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+             
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -contains ($Fromsender.isThis))
+                    }
+                }
+            }
+            'notcontains'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+               
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -notcontains ($Fromsender.isThis))
+                    }
+                }
+            }
+            'like'
+            {
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "where '$($fromsender.WhereThis)' is '$($fromsender.Operator)' to '$($fromsender.isThis)'"
+             
+                }
+                $MyData.stigs.Rules | ForEach-Object{
+                    foreach ($f_itemItem in $_) {
+                        $filtered_data += $f_itemItem  | Select-Object -Property * | Where-Object ($_.($Fromsender.WhereThis) -like ($Fromsender.isThis))
+                    }
+                }
+            }
+            default{
+                if($this.DevSettings.DEBUG_ON){
+                    $output_msg = "[{0}]:: {1}" -f
+                    $function_name,
+                    "unknown operator provided. '$($Fromsender.operator)' is not defined"
+                    Write-Host $output_msg -ForegroundColor red
+                    $operation_invalid = $true
+                }
+            }
+        }
+        if($operation_invalid){
+            $filtered_data = $null
+        }else{
+            Write-Host $output_msg -ForegroundColor Yellow
+        }
+        return $filtered_data
     }
     [psobject]SelectFromCheckList([hashtable]$Fromsender){
         $function_name = "SelectFromCheckList"
@@ -768,7 +1101,7 @@ Class PSSTIG{
             $valid_finding_ID_provided = $false
 
             # the main search is done with a key, so we need to make sure that the user provided a valid finding id
-            # only when any falid key is found does the switch change to true from false
+            # only when any valid key is found does the switch change to true from false
             foreach($finding in ($MyDataSource.stigs.rules)){
                 if($finding.group_id -match $fromsender_params.finding_id){
                     $valid_finding_ID_provided = $true
@@ -1207,7 +1540,6 @@ Class PSSTIG{
         }
         return $hstashTable
     }
-
     # GetProperty returns all the properties set in the class
     [psobject]GetProperty([string]$PropertyName){
 
@@ -1975,8 +2307,8 @@ Function New-Collection(
     # we need to tag the collection name
     $collection_name = "$collection_name-STIGS"
     $my_properties = $PSSTIG.GetProperty('*')
-    $collection_checklist_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
-    $collection_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
+    $collection_checklist_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
+    $collection_path = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
 
     $xml_file_name = $from_this_xml_data.split("$($PSSTIG.Dynamic.Settings.Separator)")[-1]
     $collection_path_xml_file = "$($collection_path)$($PSSTIG.Dynamic.Settings.Separator)$($xml_file_name)"
@@ -1998,37 +2330,104 @@ Function New-Collection(
     $replace_3 | Out-File -FilePath $checklist_Template2_file_path
 }
 
-Function New-CollectionCheckList(){
-    [array]$this_list_of_hosts,
-    [string]$collection_name
-    #[array]$this_list_of_hosts = @('host_1','host_2')
-   # [string]$collection_name = 'SQLInstanceLevel'
+Function New-CollectionCheckList([array]$hosts_lists,
+[string]$collection_name){
+    $function_name = 'New_CollectionCheckList'
+
     $checklist_name             = $collection_name
     $collection_name            = "$collection_name-STIGS"
     $my_properties              = $PSSTIG.GetProperty('*')
-    $collection_checklist_path  = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
-    $collection_folder_path     = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
+    $collection_checklist_path  = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
+    $collection_folder_path     = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
 
-    $checklist_template_name        = "{0}-cl_template.cklb" -f $collection_name
-    $checklist_Template_file_path   = "$collection_folder_path$($PSSTIG.Dynamic.Settings.Separator)$checklist_template_name"
+    # we need to tag the collection name
+    $collection_name = "$collection_name-STIGS"
+    $my_properties = $PSSTIG.GetProperty('*')
+    $collection_checklist_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
+    $collection_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
 
-    # you need to reference the checklist template for the given collection
-    $my_template_data = Get-Content -path $checklist_Template_file_path -raw
+    $checklist_template_name  = "{0}-cl_template.cklb" -f $collection_name
+    $checklist_Template_file_path = "$collection_folder_path$($PSSTIG.Dynamic.Settings.Separator)$checklist_template_name"
 
-    foreach($hst in $this_list_of_hosts){
-        # 2 names are created here, one is a temp
-        $checklist_tempfile_name    = "$($hst)_$($checklist_name)_temp.cklb"
-        $checklist_file_name        = "$($hst)_$($checklist_name).cklb"
+    if($PSSTIG.DevSettings.DEBUG_ON){
+        $output_msg = "[{0}]:: {1}" -f
+        $function_name,
+        "getting content from your checklist template '$($checklist_Template_file_path)'"
+        Write-Host $output_msg -ForegroundColor Cyan
+    }
+    $my_template_data = Get-Content -path $checklist_Template_file_path
 
-        # in the collection's checklists folder, the temporary file is created
+    foreach($h in $hosts_lists){
+        $checklist_tempfile_name  = "$($h)_$($checklist_name)_temp.cklb"
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "temporary checklist file name defined '$($checklist_tempfile_name)'"
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
+       
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "will create this temp file at the following location '$($collection_checklist_path)$($checklist_tempfile_name)'"
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
+        $checklist_file_name  = "$($h)_$($checklist_name).cklb"
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "the actual checklist filename is '$checklist_file_name'"
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
+
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "will create the actual checklist file at the following location '$($collection_checklist_path)$($checklist_file_name)'"
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
         New-Item -Path $collection_checklist_path -Name "$checklist_tempfile_name" | Out-Null
 
-        # the template data is then added to the temporary file that was just created
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "temp checklist created..."
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
         Set-Content -Path "$collection_checklist_path$checklist_tempfile_name" -Value $my_template_data
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "temp checklist file popualted with template checklist data..."
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
+        Copy-Item -path "$($collection_checklist_path)$($checklist_tempfile_name)" -Destination "$($collection_checklist_path)$($checklist_file_name)"
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "copied the data temp checklist file to the same location, with new name..."
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
+        Remove-Item "$($collection_checklist_path)$($checklist_tempfile_name)"
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "removed your temp checklist file from your collection..."
+            Write-Host $output_msg -ForegroundColor Cyan
+        }
+        if($PSSTIG.DevSettings.DEBUG_ON){
+            $output_msg = "[{0}]:: {1}" -f
+            $function_name,
+            "checklist '$($checklist_file_name)' is ready`n"
+            Write-Host $output_msg -ForegroundColor Green
+        }
+    }
 
-        # the temporary item is then copied in the same directory, and named by the actual checklist name created
-        Copy-Item -Path "$collection_checklist_path$checklist_tempfile_name" -Destination "$collection_checklist_path$checklist_file_name"
-        Remove-Item "$collection_checklist_path$checklist_tempfile_name"
+    if($PSSTIG.DevSettings.DEBUG_ON){
+        $output_msg = "[{0}]:: {1}" -f
+        $function_name,
+        "checklists created for'$($collection_name)' collection, collection is located at '$($collection_checklist_path)'"
+        Write-Host $output_msg -ForegroundColor Green
     }
 }
 
