@@ -67,47 +67,182 @@ Class PSSTIG{
     $ReportsLists = @(
         "Findings"
     )
-    [void]LinkFindingToScript([hashtable]$fromsender){
-        $fromsender = @{}
-        $fromsender
+    [PSObject]GetScriptProperties(){
+        # declare vars
+        $show_message_params = @{
+            method_name  = "GetScriptProperties"
+            message      = ""
+            message_type = ""
+        }
+        $script_library_object  = $null
+        $script_library_exists  = [bool]
+        $separator              = $this.Dynamic.Settings.Separator
        
-        # first things first, get the properties
-        $my_properties  = $this.GetProperty('*')
-        $separator      = $this.Dynamic.Settings.Separator
-        # script library should go with the tool
+        # script library is set within the the module itself
         $path_to_script_library = "$(Get-ScriptPath)$($separator)ScriptLibrary"
-        $script_library_object = Get-ChildItem -Path $path_to_script_library
+        
+        try{
+            $script_library_exists = $true
+            $script_library_object = Get-ChildItem -Path $path_to_script_library -ErrorAction Stop
+
+            $show_message_params.message_type   = "success"
+            $show_message_params.message        = "the path to the script library '$path_to_script_library' is reachable"
+        }catch{
+            $script_library_exists = $false
+            $show_message_params.message_type   = "failed"
+            $show_message_params.message        = "the path to the script library '$path_to_script_library' is not reachable or does not exist"
+        }
+        # display some feedback
+        Show-Message @show_message_params
+        if(-not($script_library_exists)){
+            return $false
+        }
+        
         $scripts_list = @()
+        $show_message_params.message_type   = "info"
+        $show_message_params.message        = "gathering some script file properties..."
         $script_library_object | ForEach-Object{
             $scripts_list +=  $_ | Select-Object -Property ('FullName','BaseName','extension')
         }
+        # display some feedback
+        Show-Message @show_message_params
 
+        $show_message_params.message_type   = "info"
+        $show_message_params.message        = "defining script file properties..."
+        Show-Message @show_message_params
+
+        # each script file name from the script_library gets parsed out using regular expression
         $script_category_table = @{}
         foreach($script in $scripts_list){
-            if($script.Extension -eq '.ps1'){
-                ($script.BaseName) -match '([0-9]+)_(CHECK|REMEDIATE)_(.*)' | Out-Null
-                $script_id          = $matches[1]
-                $script_type        = $matches[2]
-                $script_simple_name = $matches[3]
-   
-                $script_string  = get-content $script.FullName
-                $script_string[0] -match '(.*) : (.*)' | Out-Null
-                $script_level       = $matches[2]
-   
-                $script_string[1] -match '(.*) : (.*)' | Out-Null
-                $script_description = $matches[2]
-   
-                $script_category_table.add($script_simple_name,@{
-                    finding_id          = $script_id
-                    script_type         = $script_type
-                    script_level        = $script_level
-                    script_description  = $script_description
-                    script_string       = $script_string
-                })
-            }
 
-        }
-        $script_category_table.sqlbrowser_is_running
+            # we are looking at only ps1 scripts currently
+            if($script.Extension -eq '.ps1'){
+
+                # from the script file name, we want identify three parts, the findingid, the script type it is
+                # and the script name
+                $script_name_is_valid = $false
+                if(($script.BaseName) -match '([0-9]+)_(CHECK|REMEDIATE)_(.*)' ){
+                    $script_id              = $matches[1]
+                    $script_type            = $matches[2]
+                    $script_simple_name     = $matches[3]
+                    $script_name_is_valid   = $true
+
+                    $show_message_params.message_type   = "success"
+                    $show_message_params.message        = "script file '$($script.BaseName)' is in the correct format"
+                }else{
+                    $script_id              = $null
+                    $script_type            = $null
+                    $script_simple_name     = $null
+                    $script_name_is_valid   = $true
+
+                    $show_message_params.message_type   = "success"
+                    $show_message_params.message        = "part the naming of your script '$($script.BaseName)' file is incorrect"
+                }
+                # display some feedback
+                Show-Message @show_message_params
+
+                # if the script file is correctly named then we can get the content of the file itself
+                $script_string = ""
+                $script_content_read = [bool]
+                if($script_name_is_valid){
+                    try{
+                        $script_content_read = $true
+                        $script_string  = Get-Content $script.FullName
+                        $show_message_params.message_type   = "info"
+                        $show_message_params.message        = "the script file content for script '$($script.BaseName)' was read in..."
+
+                    }catch{
+                        $script_content_read = $false
+                        $show_message_params.message_type   = "failed"
+                        $show_message_params.message        = "the script file content for script '$($script.BaseName)' was read not read in..."
+                    }
+                    # display some feedback
+                    Show-Message @show_message_params
+                    if(-not($script_content_read)){
+                        return $false
+                    }
+                }else{
+                    return $false
+                }
+
+                # scripts in the script library have two commented lines at the top
+                # that is the convention of scripts included in this module
+                # here we use regular expression to define properties
+                if($script_content_read){
+                    $script_level       = $null
+                    $script_description = $null
+
+                    # here we look at the first line and figure out what level the script is for
+                    # level can be either 'host', 'instance', or 'database' level
+                    $script_level_defined = [bool]
+                    if($script_string[0] -match '(.*) : (.*)'){
+                        $script_level_defined = $true
+                        $script_level = $matches[2]
+                        
+                        $show_message_params.message_type   = "info"
+                        $show_message_params.message        = "script level definition is in the proper format..."
+
+                    }else{
+                        $script_level_defined = $false
+                        $show_message_params.message_type   = "failed"
+                        $show_message_params.message        = "unable to define script level for script '$($script.BaseName)'"
+                    }
+                    # display feedback
+                    Show-Message @show_message_params
+
+                    $script_desc_defined = [bool]
+                    if($script_level_defined){
+
+                        # here we look for the description on line two of the script content
+                        if($script_string[1] -match '(.*) : (.*)'){
+                            $script_desc_defined = $true
+                            $script_description = $matches[2]
+
+                            $show_message_params.message_type   = "info"
+                            $show_message_params.message        = "script description definition is in the proper format..."
+                        }else{
+                            $script_desc_defined = $false
+                            $show_message_params.message_type   = "failed"
+                            $show_message_params.message        = "unable to define script description for script '$($script.BaseName)'"
+                        }
+                        # display feedback
+                        Show-Message @show_message_params
+                    }else{
+                        return $false
+                    }
+                
+                    # lastly, the keys in the hashtable are defined
+                    if($script_desc_defined){
+                        $script_category_table.add($script_simple_name,@{
+                            finding_id          = $script_id
+                            script_type         = $script_type
+                            script_level        = $script_level
+                            script_description  = $script_description
+                            script_string       = $script_string
+                            script_path         = $script.FullName
+                            script_name         = $script.BaseName
+                        })
+                    }else{
+                        return $false
+                    }
+                }else{
+                    return $false
+                }
+            }else{
+                $show_message_params.message_type   = "failed"
+                $show_message_params.message        = "the extension for file '$($script.BaseName)' is not '$($script.extension)'"
+                # display feedback
+                Show-Message @show_message_params
+            }
+        } # end foreach
+
+        # provide some aggregate information from this method
+        $show_message_params.message_type   = "feed_back"
+        $show_message_params.message        = "there is a total of '$($script_category_table.count)' script(s) in your script library"
+        # display feedback
+        Show-Message @show_message_params
+
+        return $script_category_table
     }
     [void]AddXMLDataToCollection([hashtable]$fromSender){
         $method_name    = "AddXMLDataToCollection"
@@ -702,8 +837,8 @@ Class PSSTIG{
     }
     [psobject]SelectDataFromThisChecklistFile([hashtable]$Fromsender){
         $function_name      = "SelectDataFromThisChecklistFile"
-        $output_msg = $null
-        $MyData             = get-content -path ($fromsender.my_checklist_file_object).FullName  -raw| ConvertFrom-Json
+        $output_msg         = $null
+        $MyData             = Get-Content -path ($fromsender.my_checklist_file_object).FullName  -raw| ConvertFrom-Json
         $filtered_data      = @()
 
         $operation_invalid  = $false
@@ -2298,6 +2433,7 @@ Function New-Collection(
     [bool]$only_create_local_collection,
     [string]$from_this_xml_data
 ){
+
     $PSSTIG.CreateACollection(@{
         collection_name                 = $collection_name
         only_create_local_collection    = $only_create_local_collection
@@ -2340,8 +2476,6 @@ Function New-CollectionCheckList([array]$hosts_lists,
     $collection_checklist_path  = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
     $collection_folder_path     = "$($my_properties.psstig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
 
-    # we need to tag the collection name
-    $collection_name = "$collection_name-STIGS"
     $my_properties = $PSSTIG.GetProperty('*')
     $collection_checklist_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)$($PSSTIG.Dynamic.Settings.Separator)CHECKLISTS$($PSSTIG.Dynamic.Settings.Separator)"
     $collection_path = "$($my_properties.stig_parent_path)$($PSSTIG.Dynamic.Settings.Separator)$($collection_name)"
