@@ -18,19 +18,33 @@ Get-Module -Name "*"                                                            
 # step 2.2) STIGParentPath points to a folder called 'STIGVIEWERDATA', if you dont already have a folder of that name,
 #           create if first.
 $InitializePSSTIGParams = @{
-    WorkingRootDir          = "C:\Windows\System32"                                                                         # this can be anything, but its needed.
+    WorkingRootDir          = "./"                                                                                          # this can be anything, but its needed.
     PathTo_StigViewerEXE    = "C:\Users\abraham.hernandez\Documents\Software\STIGViewer_64_3-2-0"                           # so you can restart the stigviewer, you need the parent of the .exe.
-    UseDefaults             = $false                                                                                        # this will always be false, no other consideration needed.
-    PSSTIGParentPath        = "\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\Phase 1\PSSTIGDATA"                        # this can be a local/remote file location.
-    STIGParentPath          = "C:\Users\abraham.hernandez\Documents\Knowledge_Base\Sources_Library\STIGVIEWERDATA"          # this can be a local/remote file location.
+    UseDefaults             = $false                                                                                         # this will always be false, no other consideration needed.
+    PSSTIGParentPath        = "./PSSTIGDATA"                                                                                # this can be a local/remote file location.
+    STIGParentPath          = "./STIGVIEWERDATA"                                                                            # this can be a local/remote file location.
 }
-$PSSTIG = Initialize-PSSTIG @InitializePSSTIGParams
+$PSSTIG = Initialize-PSSTIG @InitializePSSTIGParams 
+
+# ----------------------------------------------------------------------------------------------------------------------
+#       ADHOC step(s)
+#-Note: depending on your powershell execution policy, you might be able to pull the stigs you need from within your session.
+#       otherwize, download it manually.
+$url            = "https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_SQL_Server_2016_Y23M10_STIG.zip"
+$outputPath     = "./Documentation/U_MS_SQL_Server_2016_Y23M10_STIG.zip"
+$zipFilePath    = "./Documentation/U_MS_SQL_Server_2016_Y23M10_STIG.zip"
+$extractPath    = "./Documentation"
+
+Expand-Archive -Path $zipFilePath -DestinationPath $extractPath
+Invoke-WebRequest -Uri $url -OutFile $outputPath
+
+Invoke-WebRequest -Uri $url -OutFile $outputPath
 
 # ----------------------------------------------------------------------------------------------------------------------
 # ADHOC step(s)
 $PSSTIG.RestartStigViewer(@{                                                                                              
     program_name                    = "STIG Viewer 3.exe"                                                                  # this will restart the stigviewer.
-    unless_not_currently_running    = $true                                                                                # if false, it wont do anything if you dont have stigviewer running.
+    unless_not_currently_running    = $true                                                                                 # if false, it wont do anything if you dont have stigviewer running.
 })                                                                                                                         # if true, even if the stigviewer is not running, it will start it up.
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -46,9 +60,9 @@ $PSSTIG.RestartStigViewer(@{
 #        overwrite existing collections.
 $NewCollectionParams = @{
         collection_name                 = 'SQLInstanceLevel'                                                               # collection need a name, use something descriptive
-        only_create_local_collection    = $false                                                                           # if false, it will create the needed folders in both your 'PSSTIGParentPath'
-        from_this_xml_data              = "C:\Users\abraham.hernandez\Documents\Knowledge_Base\Sources_Library\STIGVIEWERDATA\U_MS_SQL_Server_2016_Y23M10_STIG\U_MS_SQL_Server_2016_Instance_STIG_V2R10_Manual-xccdf.xml"   # and 'STIGParentPath'
-}                                                                                                                          # if true, it will only create the needed folder in the 'PSSTIGParentPath' path
+        only_create_local_collection    = $false                                                                            # if false, it will create the needed folders in both your 'PSSTIGParentPath'
+        from_this_xml_data              = "./Documentation/U_MS_SQL_Server_2016_Instance_STIG_V2R10_Manual-xccdf.xml"       # and 'STIGParentPath'
+}                                                                                                                           # if true, it will only create the needed folder in the 'PSSTIGParentPath' path
 New-Collection @NewCollectionParams
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -58,7 +72,7 @@ New-Collection @NewCollectionParams
 #           done internally.
 $collection_name = 'SQLInstanceLevel'
 $hosts_lists = @(
-''
+'test'
 )
 New-CollectionCheckList -hosts $hosts_lists -collection_name $collection_name
 
@@ -68,33 +82,99 @@ New-CollectionCheckList -hosts $hosts_lists -collection_name $collection_name
 #           be ignored. eq means 'equal'
 #           only the eq, and none, operations work for some reason. just fyi... will fix later
 $MyData = $PSSTIG.SelectFromCheckThisList(@{
-    ForHostName         = 'PETERESNSWSQL01\SOLARWINDS'                                                                      # each host you created will have a checklist created for it
-    FromThisSource      = 'psstig_parent_path'                                                                              # the collection is stored in 1 of 2 places, provide 1 of the places
+    ForHostName         = 'test'                                                                                            # each host you created will have a checklist created for it
+    FromThisSource      = 'stig_parent_path'                                                                                # the collection is stored in 1 of 2 places, provide 1 of the places
     FromThisCollection  = 'SQLInstanceLevel'                                                                                # in the place the collection is, the collection will have a name, provide it
     Where               = 'severity'                                                                                        # each checklist has several properties to filter on, provide one of those properties
     Operator            = 'none'                                                                                            # your propertie will be filtered on a given operator, provide that operator
     isThis              = 'medium'                                                                                          # the checklist property, will run the operation defined by your operator where the property value is this
 })
 $MyData | Select-Object -Property ('status','UpdateAt','group_id','Severity') | Format-Table -AutoSize
-$MyData[0]
+
 # ----------------------------------------------------------------------------------------------------------------------
 # step 6)   Update Checklist Data From Collection:
 #           updating a check list means you need to get the the data
 #           every script is linked to a finding, you need to have something to do that
 
-$MyData = $PSSTIG.SelectFromCheckThisList(@{
-    ForHostName         = 'PETERESNSWSQL01\SOLARWINDS'                                                                
-    FromThisSource      = 'psstig_parent_path'                                                                      
-    FromThisCollection  = 'SQLInstanceLevel'                                                                            
-    Where               = 'severity'                                                                                      
-    Operator            = 'none'                                                                                          
-    isThis              = 'medium'                                                                                          
-})
-$MyData | Select-Object -Property ('status','UpdateAt','group_id','Severity') | Format-Table -AutoSize
-$MyData[0]
+# declare vars
+$show_message_params = @{
+    method_name  = "temp_updatechecklist"
+    message      = ""
+    message_type = ""
+}
 
+$my_scripts                 = $PSSTIG.GetScriptProperties()
+$my_creds                   = Get-SmartCardCred
+$GeneralUpdateProperties    = @{                                                                                               # general update properties are properties that will apply to all your hosts
+    where       = 'status'
+    operator    = 'eq'
+    is_this     = 'not_reviewed'
+}
 
+$HostTableList = @(
+    @{
+        host_name               = 'test'                                                                
+        from_source             = 'stig_parent_path'                                                                      
+        from_collection         = 'SQLInstanceLevel'
+        use_general_properties  = $true
+        where                   = 'severity'                                                                                      
+        operator                = 'none'                                                                                          
+        is_this                 = 'medium' 
+    }
+)
 
+  # each host will need its own session 
+foreach($host_properties in $HostTableList){
+  
+    $session_created = [bool]
+    try{
+        $session_created = $true
+        New-PSSession -ComputerName $host_properties.host_name -name ("sessionfor_{0}" -f ($host_properties.host_name)) -Credential $my_creds  -ErrorAction stop | Out-Null
+        $show_message_params.message_type   = 'success'
+        $show_message_params.message        = "session succesfully created to host '$($host_properties.host_name)'"
+    }catch{
+        $session_created = $false
+        $show_message_params.message_type   = 'failed'
+        $show_message_params.message        = "session unable to be created to host '$($host_properties.host_name)'"
+    }
+    #display feedback
+    Show-Message @show_message_params
+}
+
+    if($host_properties.use_general_properties){
+        $host_update_properties = @{
+            where       = $host_properties.where
+            operator    = $host_properties.operator
+            is_this     = $host_properties.is_this
+        }
+    }else{
+        $host_update_properties = @{
+            where       = $GeneralUpdateProperties.where
+            operator    = $GeneralUpdateProperties.operator
+            is_this     = $GeneralUpdateProperties.is_this
+        }
+    }
+
+    $my_data =  $PSSTIG.SelectFromCheckThisList(@{
+        ForHostName         = $host_properties.host_name                                                             
+        FromThisSource      = $host_properties.from_source                                                                     
+        FromThisCollection  = $host_properties.from_collection                                                                          
+        Where               = $host_update_properties.where                                                                                  
+        Operator            = $host_update_properties.operator                                                                                         
+        isThis              = $host_update_properties.is_this                                                                                 
+    })
+
+    foreach($finding_properties in $my_data){
+        
+        $finding_id = ($finding_properties.group_id).Substring(2)
+        
+        foreach($properties in $my_scripts.keys){
+            if($finding_id -eq ($my_scripts.$properties.finding_id)){
+                $my_scripts.$properties.script_level
+            }
+        }
+    }
+}
 
 
 
