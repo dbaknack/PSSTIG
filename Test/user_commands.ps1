@@ -174,9 +174,6 @@ foreach($host_properties in $HostTableList){
             }
         }
     }
-}
-
-
 
 
 
