@@ -15,8 +15,8 @@ $InitializePSSTIGParams = @{
     WorkingRootDir          = "./"                                                                                          # this can be anything, but its needed.
     PathTo_StigViewerEXE    = "\\Mac\Home\Documents\Knowledge_Base\Software\STIGViewer_64_3-2-0"                           # so you can restart the stigviewer, you need the parent of the .exe.
     UseDefaults             = $false                                                                                         # this will always be false, no other consideration needed.
-    PSSTIGParentPath        = "Z:\LocalRepo\PSSTIG\PSSTIGDATA"                                                                                # this can be a local/remote file location.
-    STIGParentPath          = "Z:\LocalRepo\PSSTIG\STIGVIEWERDATA"                                                                            # this can be a local/remote file location.
+    PSSTIGParentPath        = "./PSSTIGDATA"                                                                                # this can be a local/remote file location.
+    STIGParentPath          = "./STIGVIEWERDATA"                                                                            # this can be a local/remote file location.
 }
 $PSSTIG = Initialize-PSSTIG @InitializePSSTIGParams
 
@@ -60,6 +60,7 @@ $PSSTIG.getStashedCred(@{
     for_this_host   = 'DEV-SQL01'
 })
 
+$PSSTIG.RunAudit(@{})
 # ----------------------------------------------------------------------------------------------------------------------
 # step 3) Creating a Collection:
 #-NOTE:: 'collection_name' is what the folder, that will contain your checklist files, will be named.
