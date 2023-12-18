@@ -209,6 +209,102 @@ Class PSSTIG{
         $show_message_params.message        = "credential stowed successfully"
         Show-Message @show_message_params
     }
+    [void]RunAudit([hashtable]$fromSender){
+        # declare vars
+        $show_message_params = @{
+            method_name  = "RunAudit"
+            message      = ""
+            message_type = ""
+        }
+        $my_hosts           = $this.getDataFrom('host_list')
+        $my_sessions_table  = @{}
+        $total_seesion      = $my_hosts.count
+        $session_counter    = 1
+        $my_computer_name   = & hostname
+        foreach($my_host in $my_hosts){
+            # the session name is defined by the access_name 
+            $session_name = "{0}" -f "$($my_host.access_name)"
+            
+            if($my_host.using_sql_login -eq 0){
+                $cred_is = 'WindowsAuth'
+            }else{
+                $cred_is = 'SQLLogin'
+            }
+        
+            # credentials are searched for for the credential
+            $my_creds = $this.getStashedCred(@{
+                cred_name       = $my_host.cred_type_to_use
+                cred_is         = $cred_is
+                for_domain      = $my_host.domain
+                for_this_host   = $my_host.access_name
+            })
+            
+            # the credentials are used to create the session for the host
+            $for_session = New-Object -TypeName PSCredential -ArgumentList  $my_creds.user_name,$my_creds.pw
+            $session_created = [bool]
+            try{
+                $session_created    = $true
+                $my_session         = (New-PSSession -Name $session_name -ComputerName "$($my_host.access_name)" -Credential $for_session  -ErrorAction SilentlyContinue)
+            }catch{
+                $session_created    = $false
+                $my_session         = $null
+            }
+            
+            if($session_created){
+                $show_message_params.message_type = 'success'
+                $session_counter = $session_counter + 1
+                $show_message_params.message = "[session ($session_counter of $total_seesion)] ---- [$my_computer_name] ---- [to] ---- [$($my_host.access_name)]--[status:( o )]-->"
+            }else{
+                $show_message_params.message_type = 'failed'
+                $session_counter = $session_counter -1
+                $show_message_params.message = "[session ($session_counter of $total_seesion)] ---- [$my_computer_name] ---- [to] ---- [$($my_host.access_name)]--[status:( x )]-->"
+            }
+            #display feedback
+            Show-Message @show_message_params
+
+            if($session_created){
+                # the session it self if used to define the session properties to then add then to host itself
+                $my_sessions_table.Add($my_session.name,@{})
+                $my_sessions_table.($my_session.name) = @{
+                    the_session = $my_session
+                    state       = $my_session.State
+                    id          = $my_session.id
+                    my_host     = $my_host
+                }
+            }
+            
+        }
+        $show_message_params.message_type = 'info'
+        $show_message_params.message = "Type 'Y' to continue with the audit, or 'N' to terminate this action"
+        Show-Message @show_message_params
+        $user_wants_to_continue = read-host 
+
+        $sessions_closed = [bool]
+        if($user_wants_to_continue -eq 'N'){
+            $sessions_closed = $true
+            # on mac 'Get-Session' is not defined
+            Get-Session -name * | Remove-PSSession | Out-Null
+        }
+
+        if($user_wants_to_continue -eq 'Y'){
+            $sessions_closed = $false
+        }
+
+        if($sessions_closed){
+            $show_message_params.message_type = 'Info'
+            $show_message_params.message = "total sessions closed: ($session_counter)"
+        }else{
+            $show_message_params.message_type = 'Info'
+            $show_message_params.message = "total sessions open: ($session_counter)" 
+        }
+        # dislay feedback
+        Show-Message @show_message_params
+
+        if($sessions_closed){
+            return
+        }
+    }
+
     [psobject]getStashedCred([hashtable]$fromSender){
         # declare vars
         $show_message_params = @{
