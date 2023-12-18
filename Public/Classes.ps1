@@ -32,6 +32,118 @@ Class PSSTIG{
             }
         }
     }
+
+    $stowed_credentials = @()
+    # store paths to resources used by the module
+    $paths_table = @{
+        host_list = @{
+            path    = "$(Get-ScriptPath)$($this.Dynamic.Settings.Separator)Sources$($this.Dynamic.Settings.Separator)host_list.csv"
+            type    = 'csv'
+            table   = @{
+                # 'column_list' defines all the columns in the table, 'is_null' defined weather it can be null or not
+                # 'data_type' is the defined datatype that entry can be, and 'use_default' defines if there is some defualt that entry will have
+                column_list = @(
+                    @{id =                      @{is_null = $true;      data_type = [int];      use_default = $true}},
+                    @{datetime_created =        @{is_null = $true;      data_type = [string];   use_default = $true}},
+                    @{added_by =                @{is_null = $true;      data_type = [string];   use_default = $true}},
+                    @{checklist_name =          @{is_null = $false;     data_type = [string];   use_default = $false}},
+                    @{from_source =             @{is_null = $false;     data_type = [string];   use_default = $false}},
+                    @{from_collection =         @{is_null = $false;     data_type = [string];   use_default = $false}},
+                    @{access_name =             @{is_null = $false;     data_type = [string];   use_default = $false}},
+                    @{is_sql_server =           @{is_null = $false;     data_type = [string];   use_default = $false}},
+                    @{using_sql_login =         @{is_null = $true;      data_type = [int];      use_default = $false}}
+                    @{sql_instance_name =       @{is_null = $true;      data_type = [string];   use_default = $false}},
+                    @{enclave =                 @{is_null = $true;      data_type = [string];   use_default = $false}},
+                    @{domain =                  @{is_null = $false;     data_type = [string];   use_default = $false}},
+                    @{need_creds =              @{is_null = $false;     data_type = [int];      use_default = $false}},
+                    @{cred_type_to_use =        @{is_null = $true;      data_type = [string];   use_default = $false}},
+                    @{host_type =               @{is_null = $false;     data_type = [string];   use_default = $false}},
+                    @{use_general_properties =  @{is_null = $false;     data_type = [int];      use_default = $false}},
+                    @{where =                   @{is_null = $true;      data_type = [string];   use_default = $false}},
+                    @{operator =                @{is_null = $true;      data_type = [string];   use_default = $false}},
+                    @{is_this =                 @{is_null = $true;      data_type = [string];   use_default = $false}}
+                )
+                # is use_identity is true, identiy_properties needs to be defined
+                use_identity        = $true
+                identity_properties = @{
+                    is_set          = $true
+                    is              = 'id'
+                    with_seed       = 0
+                    and_increment   = 1
+                }
+
+                # if all_columns_required is false, you need to define if there are some exclusion
+                # all_columns_required is a switch. not every update needs all the columns to be required
+                # not all columns are required when you expect to have some default values set for the ones not included
+                all_columns_required    = $false
+                # if with_some_exclusions is true, the exclusion list needs to be defined
+                with_some_exclusions    = $true
+                exclusion_list          = @('id','datetime_created','added_by')
+
+                # each thing in your exlusion_list needs to be linked to something that will define it's default property
+                use_default_for_exclusion_list_items = @{
+                    id                  = [int]
+                    datetime_created    = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+                    added_by            = [Environment]::UserName
+                }
+               
+                # any entry that can be null where the  is_null value is set to true  needs to be defined
+                null_exception_list = @(
+                    # any column in this hashtable needs to be a column
+                    @{use_sql_login = @{
+                        under_some_condition    = $false
+                        input_dependant         = $false
+                    }}
+                    @{cred_type_to_use = @{
+                        under_some_condition    = $true
+                        input_dependant         = $true
+                    }}
+                    @{enclave = @{
+                        under_some_condition    = $false
+                        input_dependant         = $false
+                    }}
+                    @{domain = @{
+                        under_some_condition    = $false
+                        input_dependant         = $false
+                    }}
+                    @{checklist_name = @{
+                        # any key with under_some_condition set to false can always be null
+                        under_some_condition    = $false
+                        input_dependant         = $false
+                    }}
+                    @{where = @{
+                        # any key with under_some_condition set to true, can be null under their constraint
+                        under_some_condition    = $true;
+                        input_dependant         = $true
+                    }}
+                    @{operator = @{
+                        under_some_condition    = $true
+                        input_dependant         = $true
+                    }}
+                    @{is_this = @{
+                        under_some_condition    = $true
+                        input_dependant         = $true
+                    }}
+                    @{sql_instance_name = @{
+                        under_some_condition    = $true
+                        input_dependant         = $true
+                    }}
+                )
+
+                # input_dependant_table is only applicable to keys in the null_exception_list where input_dependant is true
+                input_dependant_table = @{
+                    cred_type_to_use    = @{need_creds              = 0}
+                    where               = @{use_general_properties  = 1}
+                    operator            = @{use_general_properties  = 1}
+                    is_this             = @{use_general_properties  = 1}
+                    sql_instance_name   = @{is_sql_server           = 0}
+                }
+            }
+        }
+        finding_rule = @{
+            path = "$(Get-ScriptPath)$($this.Dynamic.Settings.Separator)Sources$($this.Dynamic.Settings.Separator)finding_rule.json"
+        }
+    }
     $Enviornmental = @{
         # settings in this category relate to paths and settings as defined
         # by the user at runtime
@@ -67,6 +179,65 @@ Class PSSTIG{
     $ReportsLists = @(
         "Findings"
     )
+    [void]stashCred([hashtable]$fromSender){
+        # declare vars
+        $show_message_params = @{
+            method_name  = "stashCreds"
+            message      = ""
+            message_type = ""
+        }
+
+        if($fromSender.from_PIV -eq $false){
+            $securePassword = ConvertTo-SecureString -String $fromSender.pw -AsPlainText -Force
+            $credentials    = New-Object -TypeName PSCredential -ArgumentList $fromSender.user_name, $securePassword
+        }else{
+            #TODO:: need to add the ability to prompt when using PIV
+            $securePassword = ConvertTo-SecureString -String $fromSender.pw -AsPlainText -Force
+            $credentials    = New-Object -TypeName PSCredential -ArgumentList $fromSender.user_name, $securePassword
+        }
+        
+        $this.stowed_credentials += New-Object PSObject -Property @{
+            cred_name       = $fromSender.cred_name
+            cred_is         = $fromSender.cred_is
+            for_domain      = $fromSender.for_domain
+            for_this_host   = $fromSender.for_this_host
+            user_name       = $credentials.UserName
+            pw              = $credentials.Password
+        }
+
+        $show_message_params.message_type   = "success"
+        $show_message_params.message        = "credential stowed successfully"
+        Show-Message @show_message_params
+    }
+    [psobject]getStashedCred([hashtable]$fromSender){
+        # declare vars
+        $show_message_params = @{
+            method_name  = "stashCreds"
+            message      = ""
+            message_type = ""
+        }
+
+        $my_cred =  $this.stowed_credentials | Select-Object -Property * |
+        Where-Object {$_.for_domain -match "$($fromSender.for_domain)" -and ($_.for_this_host -match "$($fromSender.for_this_host)") -and ($_.cred_name -eq "$($fromSender.cred_name)") -and ($_.cred_is -eq "$($fromSender.cred_is)")}
+
+        $no_cred_found = [bool]
+        if($null -eq $my_cred){
+            $no_cred_found = $true
+        }else{
+            $no_cred_found = $false
+        }
+
+        if($no_cred_found){
+            $show_message_params.message_type = 'failed'
+            $show_message_params.message = "no credential was found that for domain'$($fromSender.for_domain)' with host name '$($fromSender.for_this_host)'"
+        }else{
+            $show_message_params.message_type = 'success'
+            $show_message_params.message = "credential found...'"       
+        }
+        # display feedback
+        Show-Message @show_message_params
+        return $my_cred
+    }
     [PSObject]GetScriptProperties(){
         # declare vars
         $show_message_params = @{
@@ -80,7 +251,7 @@ Class PSSTIG{
        
         # script library is set within the the module itself
         $path_to_script_library = "$(Get-ScriptPath)$($separator)ScriptLibrary"
-        
+       
         try{
             $script_library_exists = $true
             $script_library_object = Get-ChildItem -Path $path_to_script_library -ErrorAction Stop
@@ -97,7 +268,7 @@ Class PSSTIG{
         if(-not($script_library_exists)){
             return $false
         }
-        
+       
         $scripts_list = @()
         $show_message_params.message_type   = "info"
         $show_message_params.message        = "gathering some script file properties..."
@@ -178,7 +349,7 @@ Class PSSTIG{
                     if($script_string[0] -match '(.*) : (.*)'){
                         $script_level_defined = $true
                         $script_level = $matches[2]
-                        
+                       
                         $show_message_params.message_type   = "info"
                         $show_message_params.message        = "script level definition is in the proper format..."
 
@@ -210,7 +381,7 @@ Class PSSTIG{
                     }else{
                         return $false
                     }
-                
+               
                     # lastly, the keys in the hashtable are defined
                     if($script_desc_defined){
                         $script_category_table.add($script_simple_name,@{
@@ -255,12 +426,393 @@ Class PSSTIG{
         Write-Host $output_msg -ForegroundColor Cyan
 
     }
+    [psobject]getDataFrom([string]$this_file){
+        # declare vars
+        $show_message_params = @{
+            method_name  = "getDataFrom"
+            message      = ""
+            message_type = ""
+        }
+
+        $can_read_file  = [bool]
+        $my_rawdata     = $null
+        # data need to be read in from the source defined in the class parameter
+        try {
+            $can_read_file  = $true
+            $my_rawdata     = Get-Content $this.paths_table.$this_file.path -ErrorAction Stop -Raw
+            $show_message_params.message_type   = 'success'
+            $show_message_params.message        = "was able to read data from resource '$($this_file)'"
+        }catch{
+            $can_read_file  = $false
+            $show_message_params.message_type   = 'failed'
+            $show_message_params.message        = "was unable able to read data from resource '$($this_file)'"
+        }
+        #display feedback
+        Show-Message @show_message_params                
+        if(-not($can_read_file)){
+            return $false
+        }
+
+        $my_data            = $null
+        $can_convert_data   = [bool]
+        switch(($this.paths_table.$this_file).type){
+            'csv'{
+                try{
+                    $my_data    = $my_rawdata | ConvertFrom-Csv -ErrorAction Stop
+                    $can_convert_data                   = $true
+                    $show_message_params.message_type   = 'info'
+                    $show_message_params.message        = "data from source was converted..."
+                }catch{
+                    $can_convert_data                   = $false
+                    $show_message_params.message_type   = 'failed'
+                    $show_message_params.message        = "data from source was not able to be converted..."
+                }
+            }
+            'json'{
+                try{
+                    $my_data    = $my_rawdata | ConvertFrom-Json -ErrorAction Stop
+                    $can_convert_data                   = $true
+                    $show_message_params.message_type   = 'info'
+                    $show_message_params.message        = "data from source was converted..."
+                }catch{
+                    $can_convert_data                   = $false
+                    $show_message_params.message_type   = 'failed'
+                    $show_message_params.message        = "data from source was not able to be converted..."
+                }
+            }
+            default{
+                $show_message_params.message_type   = 'failed'
+                $show_message_params.message        = "the file type for '$($this_file)' is not defined"
+                # display feedback
+                Show-Message @show_message_params
+                return $false
+            }
+        }
+        # display feedback
+        Show-Message @show_message_params
+        if(-not($can_convert_data)){
+            $my_rawdata = $null
+            return $false
+        }
+
+        $my_rawdata = $null
+        return $my_data
+    }
+    [void]insertInto([hashtable]$fromSender){
+        # declare vars
+        $show_message_params = @{
+            method_name  = "addDataTo"
+            message      = ""
+            message_type = ""
+        }
+
+        # data is read in by invoking the 'getDataFrom' method
+        $my_data = $this.getDataFrom(($fromSender.this_file))
+
+        # since data can be structured differently, i.e. some in csv format, some in json
+        # its required to get the file's type
+        $my_path_table = $this.paths_table.($fromSender.this_file)
+
+        # define the desired order of property names
+         $desiredOrder = @($my_path_table.table.column_list.keys)
+        # depending on the type of the file, the updatable fields are set differently,
+        # getting column headings from csv format will be different from json or xml, etc...
+        
+        $missing_columns            = @()
+        $there_are_missing_columns  = [bool]
+        
+
+        # the switch is incharge of handling the file format the data is stored in
+        # default conditions are considered to be exceptions when the file type is undefined
+        # in the switch
+        $is_valid_type  = [bool]
+        switch($my_path_table.type){
+            "csv"{
+                $is_valid_type      = $true
+                #-Note::    Handling Of Missing Paramters In Insert Method:
+                #           Columns can be exluded from the insert statement only when that column, as defined in tables.column_list as
+                #           the property use_default set to true.
+                #           Any ommited column in the insert statement with a 'use_default' set to 'false' is considered to be an exception.
+
+                # step 1.0) comparing of the users input to the defined columns in tables.column_list is done
+                $missing_columns    = $my_path_table.table.column_list.keys | Where-Object { -not $fromSender.this_data.ContainsKey($_)}
+
+                # columns are considered to have been ommited only when there is a difference defined in 'misssing_columns'
+                if($missing_columns.count -ne 0){
+                    $missing_columns_string    = $missing_columns -join (',')
+                    $there_are_missing_columns = $true
+                    $show_message_params.message_type   = 'info'
+                    $show_message_params.message        = "update command excluded the following column names '$missing_columns_string'"
+                }else{
+                    $there_are_missing_columns  = $false
+                    $show_message_params.message_type   = 'info'
+                    $show_message_params.message        = "update command did did not exclude any columns"
+                }
+                #display feedback
+                Show-Message @show_message_params
+
+                # step 1.1) in the event that the use's input ommited some columns, those column's use_default property is evaluted
+                #           the results of the evaluation will define if an exception is triggered or not
+                $these_columns_cannot_be_ommited = @()
+                if($there_are_missing_columns){
+                    foreach($column in $my_path_table.table.column_list.keys){
+                        $use_defult = $my_path_table.table.column_list.$column.use_default
+
+                        # only the columns in the column list whos use_default property set to false can be excluded
+                        if(-not($use_defult)){
+                            if($missing_columns -contains $column){
+                               $these_columns_cannot_be_ommited += $column
+                            }
+                        }
+                    }
+                }
+
+                # step 1.2) the exception is defined in the event that there is anything other than 0 columns exluded with a use_default of false
+                #           if columns are missing, but their use_default is true, then on exception will be considered for defining
+                $raise_exception_missing_required_cols = [bool]
+                if(-not($these_columns_cannot_be_ommited).count -eq 0){
+                    $raise_exception_missing_required_cols  = $true
+                    $show_message_params.message_type   = 'failed'
+                    $show_message_params.message        = "your update request is missing some properties"
+                }else{
+                    $raise_exception_missing_required_cols  = $false
+                    $show_message_params.message_type   = 'success'
+                    $show_message_params.message        = "update request included all required parameters"
+                }
+                # display feedback
+                Show-Message @show_message_params
+
+                # step 1.3) the method will terminate depending on the results of the workflow up to this point
+                if($raise_exception_missing_required_cols){
+                    return
+                }
+
+                # step 1.4) columns that are ommited from the insert statement, but are allowed to be ommited, are only really allowed
+                #           becuase their value will is defined initially in tables.use_default_for_exclusion_list_items
+                if($missing_columns.count -gt 0){
+
+                    # there value is added to the hashtable defined by the user when command is involed
+                    foreach($column in $my_path_table.table.use_default_for_exclusion_list_items.keys){
+                        $fromSender.this_data.Add($column,$my_path_table.table.use_default_for_exclusion_list_items.$column)
+                    }
+                }
+
+                # 2.0)  Evaluating Null Parameter Values:
+                #       Not all parameter values submitted at invocation need to be given a value. This adds flexability to the data that
+                #       might require it for use in future cases
+
+                # step 2.1) the values from the user's this_data are evalutes against the list of values in null_values_list, anything that matches any
+                #           of those items is considered to be a null entry
+                $null_values_list = @($null,"",' ')
+                $null_columns_list = @()
+                foreach($entry_key in $fromSender.this_data.keys){
+                    if($null_values_list -contains ( ($fromSender.this_data).$entry_key )){
+                        $null_columns_list += $entry_key
+                    }
+                }
+
+                # step 2.1) display information about what,if any, user provided properties are null
+                $null_values_used       = [bool]
+                $null_columns_string    = [string]
+                if($null_columns_list.count -ne 0){
+                    $null_columns_string = $null_columns_list -join "`n"
+                    $null_values_used  = $true
+                    $show_message_params.message_type   = 'info'
+                    $show_message_params.message        = "the following user provided properties are null:`n$null_columns_string"
+                }else{
+                    $null_values_used  = $false
+                    $show_message_params.message_type   = 'info'
+                    $show_message_params.message        = "the update command proporties does not contain any null values"
+                }
+                #display feedback
+                Show-Message @show_message_params
+
+                # 2.2)  in the event that there are any null values used, the exception by checking the table.column_list.$column is_null property value
+                $columns_that_cannot_be_null = @()
+                if($null_values_used){
+                    foreach($column in $my_path_table.table.column_list.keys){
+                        $is_null = $my_path_table.table.column_list.$column.is_null
+
+                        # values in columns_that_cannot_be_null are going to trigger the exception since they are not allowed to be null
+                        if(-not($is_null)){
+                            if($null_columns_list -contains $column){
+                               $columns_that_cannot_be_null += $column
+                            }
+                        }
+                    }
+                }
+
+                # 2.3) exception will be raised in the event that any null value that is not allowed to be null is null
+                $raise_exception_invalid_nulls = [bool]
+                if(-not($columns_that_cannot_be_null).count -eq 0){
+                    $raise_exception_invalid_nulls  = $true
+                    $show_message_params.message_type   = 'failed'
+                    $show_message_params.message        = "a property provided is not allowed to be null.."
+                }else{
+                    $raise_exception_invalid_nulls  = $false
+                    $show_message_params.message_type   = 'success'
+                    $show_message_params.message        = "update request uses proper nullable values..."
+                }
+                # display feedback
+                Show-Message @show_message_params
+                if($raise_exception_invalid_nulls){
+                    return
+                }
+               
+                # 2.4) values in the insert statement that are null, are only really allowed to be null given the defined values in table.null_exception_list
+                foreach($property_with_exception in $my_path_table.table.null_exception_list){
+
+                    # each of the user's input values is checked against the defined null_exception to see if they even have a defined constraint set
+                    foreach($user_data_column in $fromSender.this_data.Keys){
+
+                        # any column that does have a matching null_exception_list defined contraint is evaluated
+                        $input_dependant        = [bool]
+                        $under_some_condition   = [bool]
+
+
+                        if(($user_data_column -match "$($property_with_exception.Keys)") -and ($null_values_list -contains $fromSender.this_data.$user_data_column)){
+                            $under_some_condition   = $my_path_table.table.null_exception_list.$user_data_column.under_some_condition
+                           
+                            # under_some_condition is what defines a null entry as having applicable null constraints to evalute
+                            # if its false, doesn't matter if inpute_dependant is true or false, that property does can be null without having conditions
+                            # to evaluate against
+                            $has_null_constraints_to_evaluate = [bool]
+                            if($under_some_condition -eq $true){
+                                $has_null_constraints_to_evaluate = $true
+                                $show_message_params.message_type   = 'info'
+                                $show_message_params.message        = "the user property '$user_data_column' can be null under certain conditions.."
+                            }
+                            if($under_some_condition -eq $false){
+                                $has_null_constraints_to_evaluate = $false
+                                $show_message_params.message_type   = 'info'
+                                $show_message_params.message        = "the user property '$user_data_column' can be null without a conditions check..."
+                            }
+                            # display feedback
+                            Show-Message @show_message_params
+
+                            # input_dependant; when true means that a property can only be null under the conditions defined for that property in 
+                            # input_dependant table
+                            $input_dependant = $my_path_table.table.null_exception_list.$user_data_column.input_dependant
+                            if($has_null_constraints_to_evaluate){
+
+                                # if it is input dependant, we need to evaluate those properties against the dependency table
+                                if($input_dependant){
+                                    $passed_dependency_check = [bool]
+                                    $valid_dependecy_conditon_found = [bool]
+                                    if(@($my_path_table.table.input_dependant_table.keys) -contains $user_data_column){
+                                        $valid_dependecy_conditon_found = $true
+                                        $show_message_params.message_type   = 'info'
+                                        $show_message_params.message        = "the user property '$user_data_column' has a defined dependecy condition..."
+                                    }else{
+                                        $valid_dependecy_conditon_found = $false
+                                        $show_message_params.message_type   = 'failed'
+                                        $show_message_params.message        = "the user property '$user_data_column' does not have a defined dependecy condition..."
+                                    }
+                                    #display feedback
+                                    Show-Message @show_message_params
+                                    if((-not$valid_dependecy_conditon_found)){
+                                        return
+                                    }
+                                }
+
+                                # use the key of the condition to see what the value in the input needs to be
+                                $dependent_on_this_property = ($my_path_table.table.input_dependant_table.($user_data_column).keys)
+                                $this_value                 = ($my_path_table.table.input_dependant_table.($user_data_column).values)
+                                if($fromSender.this_data."$($dependent_on_this_property)" -eq  $($this_value)){
+                                    $passed_dependency_check = $true
+                                    $show_message_params.message_type   = 'success'
+                                    $show_message_params.message        = "the property '$user_data_column' passed it's dependency check"
+                                }else{
+                                    $passed_dependency_check = $false
+                                    $show_message_params.message_type   = 'failed'
+                                    $show_message_params.message        = "the property '$user_data_column' failed it's dependency check"
+                                }
+                                # display feedback
+                                Show-Message @show_message_params
+
+                                if(-not($passed_dependency_check)){
+                                    $show_message_params.message_type = "info"
+                                    $show_message_params.message      = "'$user_data_column' can only be null when '$dependent_on_this_property' is '$this_value'"
+                                    # display feedback
+                                    Show-Message @show_message_params
+                                    return
+                                }
+                            }
+                        }
+                    }
+                }
+
+                # step 3.0) Table Identity:
+                #           Each table can be defined with or without a identity property, the identity property is how each entry get auto enumerated on insert.
+                $using_indentity_property = [bool]
+                if($my_path_table.table.identity_properties.is_set){
+                    $using_indentity_property = $true
+                    $show_message_params.message_type   = "info"
+                    $show_message_params.message        = "'$($fromSender.this_file)' uses an identity property..."
+                }else{
+                    $using_indentity_property = $false
+                    $show_message_params.message_type   = "info"
+                    $show_message_params.message        = "'$($fromSender.this_file)' does not use an identity property..."       
+
+                }
+                # display feedback
+                Show-Message @show_message_params
+
+                # if the table is using an identity property, the identity property defined will be used
+                if($using_indentity_property){
+                    $my_identity = $my_path_table.table.identity_properties.is
+                    $it_is_empty = [bool]
+
+                    # if there is no data in your table, then it is defined to be empty
+                    if($null -match ($my_data.$my_identity)){
+                        $it_is_empty = $true
+                    }else{
+                        $it_is_empty = $false
+                    }
+
+                    # if the data table is not empty, then whatever is the last entry, will be used to enumerate from
+                    # given the defined increment by value. if the data is empty, it will increment from the seed value
+                    $starting_at = [int]
+                    
+                    if($it_is_empty){
+                        [int]$starting_at = [int]$($my_path_table.table.identity_properties.with_seed)
+                    }else{
+                        [int]$starting_at = ([int]($my_data | Select-Object -Property $my_identity -Last 1).$my_identity)
+                    }
+                    $fromSender.this_data.$my_identity = ($starting_at + $($my_path_table.table.identity_properties.and_increment))
+                }
+            }
+            # -> additional file definition can be added here <-
+            default{
+                $is_valid_type                      = $false
+                $show_message_params.message_type   = 'failed'
+                $show_message_params.message        = "the file '$($fromSender.this_file)' is of a type '$($my_path_table.type)', which is undefined"
+            }
+        }
+
+        if(-not($is_valid_type)){
+            #display feedback
+            Show-Message @show_message_params
+            return
+        }
+
+
+        try{
+            (([array]$my_data + (ConvertFrom-Hashtable -MyHashtable $fromSender.this_data))  | Select-Object $desiredOrder  | ConvertTo-Csv -NoTypeInformation)  | Out-File $my_path_table.path -ErrorAction Stop
+            $show_message_params.message_type   = 'success'
+            $show_message_params.message        = "insert operation complete"
+        }catch{
+            $show_message_params.message_type   = 'failed'
+            $show_message_params.message        = "insert operation failed"
+        }
+        # display feedback
+        Show-Message @show_message_params
+    }
     [psobject]GetChecklistforThisHost([hashtable]$fromSender){
         $method_name        = "GetChecklistforThisHost"
         $output_msg         = $null
         $is_valid_source    = [bool]
         $separator          = $this.Dynamic.Settings.Separator
-   
         $my_properties = $this.GetProperty('*')
         switch($fromSender.from_source){
             'psstig_parent_path'{
@@ -292,7 +844,6 @@ Class PSSTIG{
                 }
             }
         }
-
         $matched_checklist_object = $null
         if($is_valid_source){
             $collection_name_tagged     = "$($fromSender.collection_name)-STIGS"
@@ -306,9 +857,7 @@ Class PSSTIG{
             $collection_checklist_parsed_namelists_edited  =  $collection_checklist_parsed_namelists -replace ('-','\')
 
             # step through the edited checklists names
-           
             foreach($checklist in $collection_checklist_parsed_namelists_edited){
-
 
                 # see if the hostname provided matches anything
                 if($fromsender.host_name -eq $checklist){
@@ -2634,4 +3183,4 @@ Function New-CollectionCheckList([array]$hosts_lists,
 # $PSSTIG.DevSettings
 # $PSSTIG.Dynamic
 # $PSSTIG.Enviornmental.Settings
-# # where ever you set the parent, you need the paths as defined by you below
+# # where ever you set the parent, you need the paths as defined by you below f

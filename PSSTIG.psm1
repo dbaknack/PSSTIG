@@ -13,3 +13,4 @@ foreach($file in $private_files){
     . $file.FullName
     write-host  "$($file.FullName)" -ForegroundColor Blue
 }
+

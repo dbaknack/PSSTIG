@@ -1,4 +1,4 @@
-# script_level : host
+# script_level : server
 # script_description : checking to see if the sql browser is running or not
 
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -24,4 +24,17 @@ try{
 $elapsed_time = $timer.ElapsedMilliseconds
 $timer.stop()
 $CheckResultsTable.check_duration_milli = $elapsed_time
+
+if(-not($CheckResultsTable.check_completed)){
+    write-host 'this' -ForegroundColor red
+}else{
+    write-host 'this' -ForegroundColor Green
+}
+if($CheckResultsTable.check_results.Status -eq 'Running'){
+    $CheckResultsTable.Add('finding', $true)
+}
+if($CheckResultsTable.check_results.Status -eq 'Stopped'){
+    $CheckResultsTable.Add('finding', $false)
+}
+
 $CheckResultsTable
