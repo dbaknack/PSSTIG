@@ -221,6 +221,8 @@ Class PSSTIG{
         $total_seesion      = $my_hosts.count
         $session_counter    = 1
         $my_computer_name   = & hostname
+
+        
         foreach($my_host in $my_hosts){
             # the session name is defined by the access_name 
             $session_name = "{0}" -f "$($my_host.access_name)"
@@ -303,6 +305,106 @@ Class PSSTIG{
         if($sessions_closed){
             return
         }
+
+        # script library gets defined
+        $scripts_list = $this.GetScriptProperties()
+        $my_seach_conditions = @{
+            where       = 'status'
+            operator    = 'eq'
+            is_this     = 'not_reviewed'
+        }
+        foreach($session in $my_sessions_table){
+            # each host object defines what  kind of properties to use
+            # if the object value is '1' then it will use the defined GeneralUpdateProperties defined by you
+            # it might be better to think of general update properties as a categorical search filter, there can be many, but this one is do an audit
+            if($my_sessions_table.$session.my_host.use_general_properties -eq 1){
+                $my_sessions_table.$session.my_host.where      = $my_seach_conditions.where
+                $my_sessions_table.$session.my_host.operator   = $my_seach_conditions.operator
+                $my_sessions_table.$session.my_host.is_this    = $my_seach_conditions.is_this
+            }
+
+            # data is the returned from the select list where the search criteria is met
+            $my_data =  $this.SelectFromCheckThisList(@{
+                ForHostName         = $my_sessions_table.$session.my_host.checklist_name                                                         
+                FromThisSource      = $my_sessions_table.$session.my_host.from_source                                                                 
+                FromThisCollection  = $my_sessions_table.$session.my_host.from_collection                                                                         
+                Where               = $my_sessions_table.$session.my_host.where                                                                                 
+                Operator            = $my_sessions_table.$session.my_host.operator                                                                                      
+                isThis              = $my_sessions_table.$session.my_host.is_this                                                                           
+            })            
+            # the data is then added to the sessions table
+            $my_sessions_table.$session.Add('checklist_data',$my_data)
+
+            # all the scripts are then added to each session?
+            # would be better to add them only once
+            $my_sessions_table.$session.Add('script_table',@{})
+            foreach($script in $scripts_list.keys){
+                $my_sessions_table.$session.script_table.Add($script,$scripts_list.$script)
+            }
+        }
+
+        # $my_data =  $PSSTIG.SelectFromCheckThisList(@{
+        #     ForHostName         = $my_host.checklist_name                                                         
+        #     FromThisSource      = $my_host.from_source                                                                 
+        #     FromThisCollection  = $my_host.from_collection                                                                         
+        #     Where               = 'status'                                                                                
+        #     Operator            = 'eq'                                                                                     
+        #     isThis              = 'not_reviewed'                                                                        
+        # }) 
+        # a counter for each session is seeded
+        $total_jobs_needed = [int]
+        foreach($session in $my_sessions_table.keys){
+            # a counter for each session is seeded
+            $total_jobs_needed = 0
+
+            # the seassion then looks in its checklists, for the finding id 
+            foreach($finding in $my_data){
+            #foreach($finding in $my_sessions_table.$session.checklist_data){
+                if($finding.group_id -match '(V-)(.*)'){
+                    $finding_id = $Matches[2]
+                }else{
+                    $finding_id = $Null
+                }
+                
+                # since at this point the checklist has been filtered, we need to see what kind of script will be needed to do the work
+                # this is done by using the finding id and the script id wich will be the same
+                #foreach($script in $my_sessions_table.$session.script_table.keys){
+                foreach($script in $scripts_list.keys){
+                    #$script_finding_id  =  $my_sessions_table.$session.script_table.$script.finding_id
+                    $script_finding_id  =  $scripts_list.$script.finding_id
+                    if($script_finding_id -match $finding_id){
+                        # $script_path = $my_sessions_table.$session.script_table.$script.script_path
+                        $script_path = $scripts_list.$script.script_path
+
+                        # matching the criteria means a script will be ran, that will happen in it's own job
+                        # the counter will track how many jobs
+                        $total_jobs_needed = $total_jobs_needed + 1
+                    }
+                }
+            }
+        }
+
+        # each session will kick off their jobs in batches
+        foreach($session in $my_sessions_table.keys){
+            # each session will define how many jobs to run and how many batches to run
+            # let the sender set the batch limit
+            # for not just test with a batchsize of 10
+            $batchSize = 10
+            $total_jobs_needed = 100
+            #for ($i = 1; $i -le $total_jobs_needed; $i += $fromSender.Batchsize){
+            for ($i = 1; $i -le $total_jobs_needed; $i += $batchSize){
+                $batchStart = $i
+                $batchEnd = [math]::Min($i + $batchSize - 1, $total_jobs_needed)
+                write-host   "starting batch at: $batchStart" -ForegroundColor cyan
+                write-host   "batch ends at: $batchEnd" -ForegroundColor cyan
+
+                $my_jobs = $batchStart..$batchEnd
+                foreach($job in $my_jobs){
+                    
+                }
+            }
+        }
+
     }
 
     [psobject]getStashedCred([hashtable]$fromSender){

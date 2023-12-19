@@ -257,7 +257,6 @@ foreach($sesion in $my_sessions_table.keys){
             }
         }
     }
-
 }
 
 get-job -Name "*" | Remove-Job
