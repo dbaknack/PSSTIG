@@ -10,10 +10,10 @@ Get-Module -Name "*"
 # initialize the module with the following options
 $InitializePSSTIGParams = @{
     WorkingRootDir          = "C:\Windows\System32"
-    PathTo_StigViewerEXE    = "G:\Software\STIGVIEWER_64_3-2-0"
+    PathTo_StigViewerEXE    = "C:\Software\STIGViewer_64_3_2_0"
     UseDefaults             = $false
-    PSSTIGParentPath        = "\\MST3K\LocalShare\PSSTIGDATA"
-    STIGParentPath          = "\\MST3K\LocalShare\STIGVIEWERDATA"
+    PSSTIGParentPath        = "C:\STIGS\PSSTIGDATA"
+    STIGParentPath          = "C:\STIGS\STIGVIEWERDATA"
 }
 $PSSTIG = Initialize-PSSTIG @InitializePSSTIGParams
 

@@ -31,9 +31,9 @@ $PSSTIG = Initialize-PSSTIG @InitializePSSTIGParams
 #-Note: depending on your powershell execution policy, you might be able to pull the stigs you need from within your session.
 #       otherwize, download it manually.
 $url            = "https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_SQL_Server_2016_Y23M10_STIG.zip"
-$outputPath     = "./Documentation/U_MS_SQL_Server_2016_Y23M10_STIG.zip"
-$zipFilePath    = "./Documentation/U_MS_SQL_Server_2016_Y23M10_STIG.zip"
-$extractPath    = "./Documentation"
+$outputPath     = "C:\STIGS\DCSA_STIGS\U_MS_SQL_Server_2016_Y23M10_STIG.zip"
+$zipFilePath    = "C:\STIGS\DCSA_STIG\U_MS_SQL_Server_2016_Y23M10_STIG.zip"
+$extractPath    = "C:\STIGS\DCSA_STIGS\Documentation"
 
 Expand-Archive -Path $zipFilePath -DestinationPath $extractPath
 Invoke-WebRequest -Uri $url -OutFile $outputPath
@@ -61,7 +61,7 @@ $PSSTIG.RestartStigViewer(@{
 $NewCollectionParams = @{
         collection_name                 = 'SQLInstanceLevel'                                                               # collection need a name, use something descriptive
         only_create_local_collection    = $false                                                                            # if false, it will create the needed folders in both your 'PSSTIGParentPath'
-        from_this_xml_data              = "./Documentation/U_MS_SQL_Server_2016_Instance_STIG_V2R10_Manual-xccdf.xml"       # and 'STIGParentPath'
+        from_this_xml_data              = "C:\STIGS\DCSA_STIGS\SQL_Server_2016_Instance\U_MS_SQL_Server_2016_Instance_STIG_V2R10_Manual-xccdf.xml"       # and 'STIGParentPath'
 }                                                                                                                           # if true, it will only create the needed folder in the 'PSSTIGParentPath' path
 New-Collection @NewCollectionParams
 

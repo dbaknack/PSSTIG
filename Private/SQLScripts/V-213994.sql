@@ -1,0 +1,1 @@
+select @@version as check_result

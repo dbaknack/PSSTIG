@@ -1,13 +1,265 @@
 # pass in a finding ID
 # here is where the scripts to run are defined given the finding id
 # this function gets updated with finding scripts to run, if any
+
+Import-Module C:\LocalRepo\PSUTILITIES\PSUTILITIES.psd1
+
+Get-Module 
+Class PSSTIGAUDIT{
+    $Configuration = @{
+        Folders = @{
+            Parent = @{
+                Description = "Used at the central repository of output from this tool."
+                Path        = [string]
+            }
+            Sources = @{
+                Description = "Used to output files used as a datasource for reports."
+                Path        = [string]
+            }
+            Reports = @{
+                Description = "Used to store reports generated from datasources."
+                Path        = [string]
+            }
+        }
+        Files = @{
+            SQLRoleMembersList = @{
+                Description = "For SQL Server roles and role members."
+                Name    = "SQLRoleMembersList.csv"
+                Path    = [string]
+            }
+            ServerAdminAccountsList = @{
+                Description = "For SQL Server roles and role members."
+                Name    = "SQLRoleMembersList.csv"
+                Path    = [string]
+            }
+        }
+    }
+    $FindingInfo = @{
+        
+    }
+    $PSUTILITIES        = (PSUTILITIES)
+    $PlatformParameters = (PlatformParameters)
+
+    [void]SetFileSystemItems(){
+        $myFolders  = $this.Configuration.Folders
+        $myFiles    = $this.Configuration.Files
+       
+        $parentExists = Test-Path -Path $myFolders.Parent.path
+        $createItem = [bool]
+        $itemCreated = [bool]
+        if($parentExists -eq $false){
+            $createItem = $true
+
+        }else{
+            $itemCreated = $true
+            $createItem = $false
+        }
+
+        if($createItem){
+            try{
+                $itemCreated = $true
+                $this.PSUTILITIES.CreateItem(@{
+                    ItemType        = "Directory"
+                    Path            = $myFolders.Parent.Path
+                    WithFeedback    = $false
+                })
+            }catch{
+                $itemCreated = $false
+            }
+        }
+
+        if($itemCreated -eq $false){
+            return
+        }
+
+        $SourceFolderPath = $myFolders.Sources.Path
+        $sourcesExists = Test-Path -Path $SourceFolderPath
+
+        if($sourcesExists -eq $false){
+            $createItem = $true
+        }else{
+            $itemCreated = $true
+            $createItem = $false
+        }
+
+        if($createItem){
+            try{
+                $itemCreated = $true
+                $this.PSUTILITIES.CreateItem(@{
+                    ItemType        = "Directory"
+                    Path            = $SourceFolderPath
+                    WithFeedback    = $false
+                })
+            }catch{
+                $itemCreated = $false
+            }
+        }
+
+        if($itemCreated -eq $false){
+            return
+        }
+
+        $reportFolderPath = $myFolders.Reports.Path
+        $reportExists = Test-Path -Path $reportFolderPath
+
+        if($reportExists -eq $false){
+            $createItem = $true
+        }else{
+            $itemCreated = $true
+            $createItem = $false
+        }
+
+        if($createItem){
+            try{
+                $itemCreated = $true
+                $this.PSUTILITIES.CreateItem(@{
+                    ItemType        = "Directory"
+                    Path            = $reportFolderPath
+                    WithFeedback    = $false
+                })
+            }catch{
+                $itemCreated = $false
+            }
+        }
+
+        if($itemCreated -eq $false){
+            return
+        }
+        
+        #fileCreation
+        foreach($file in $myFiles.keys){
+            $myFilePath = $myFiles.$file.Path
+            $myFileExists = Test-Path -Path $myFilePath
+
+            $createItem = [bool]
+            if(-not($myFileExists)){
+                $createItem = $true
+                $itemCreated = $false
+            }else{
+                $createItem = $false
+                $itemCreated = $true
+            }
+
+            if($createItem){
+                try{
+                    $itemCreated = $true
+                    $this.PSUTILITIES.CreateItem(@{
+                        ItemType        = "File"
+                        Path            = $myFilePath
+                        WithFeedback    = $false
+                    })
+                }catch{
+                    $itemCreated = $false
+                }
+            }
+        }
+    }
+    [psobject]ReadFromSource([hashtable]$fromSender){
+        $fromSender =  @{SourceFileName = "SQLRoleMembersList"}
+        $mySource = $this.Configuration.Files.($fromSender.SourceFileName)
+        $mySourceFileInfo = Get-ChildItem -Path $mySource.Path
+
+        $SourceFileType = $mySourceFileInfo.extension
+        $mySourceContent = switch($SourceFileType){
+            ".csv"{
+                Get-Content -Path $mySource.Path | ConvertFrom-Csv
+            }
+        }
+        return $mySourceContent
+    }
+    [void]Initalize([hashtable]$fromSender){
+        $Seperator = $this.PlatformParameters.Separator
+        $myParent = ($fromSender.ParentFolderPath)
+
+        if(-not($myParent[-1] -eq $Seperator)){
+            $myParent =  "$($myParent)$($Seperator)"
+        }
+
+        $mySourcesFolderPath = "$($myParent)Sources$($Seperator)"
+        $myReportsFolderPath = "$($myParent)Reports$($Seperator)"
+
+        $this.Configuration.Folders.Parent.Path  = $myParent
+        $this.Configuration.Folders.Sources.Path = $mySourcesFolderPath
+        $this.Configuration.Folders.Reports.Path = $myReportsFolderPath
+
+        $this.Configuration.Files.SQLRoleMembersList.Name = "SQLRoleMembersList.csv"
+        $this.Configuration.Files.SQLRoleMembersList.Path = "$($mySourcesFolderPath)SQLRoleMembersList.csv"
+
+        $this.Configuration.Files.ServerAdminAccountsList.Name = "ServerAdminAccountsList.csv"
+        $this.Configuration.Files.ServerAdminAccountsList.Path = "$($mySourcesFolderPath)ServerAdminAccountsList.csv"
+    }
+    [psobject]GetSQLQuery([hashtable]$fromSender){
+        $myFindingID = $fromSender.FindingID
+        $separator = $this.PlatformParameters.Separator
+        $SQLScriptFolderPath = ".$($separator)Private$($separator)SQLScripts$($separator)"
+
+        $scriptList = (Get-ChildItem -path $SQLScriptFolderPath).BaseName
+
+        if($scriptList -notcontains $myFindingID){
+            return 0
+        }
+        
+        $isDirectory = [bool]
+        try{
+            $isDirectory = $true
+            $scriptItemProperty = Get-ItemProperty -Path "$($SQLScriptFolderPath)$($myFindingID)" -ErrorAction Stop
+        }catch{
+            $isDirectory = $false
+            $scriptItemProperty = Get-ItemProperty -Path "$($SQLScriptFolderPath)$($myFindingID).sql" 
+
+        }
+
+        $scriptTable            = @{}
+        $scriptFileProperties   = $null
+        switch($ScriptItemProperty.Attributes){
+            "Directory"{
+                $scriptFileProperties = Get-ChildItem -path "$($SQLScriptFolderPath)$($myFindingID)"
+                foreach($scriptProperty in $scriptFileProperties){
+                    $script = Get-Content -Path $scriptProperty.FullName
+                    $scriptTable.Add(($scriptProperty.BaseName),$script)
+                }
+            }
+            "Archive"{
+                $scriptFileProperties = Get-ChildItem -path "$($SQLScriptFolderPath)$($myFindingID).sql"
+                $script = Get-Content -Path $scriptFileProperties.FullName
+                $scriptTable.Add(($scriptFileProperties.BaseName),$script)
+            }
+        }
+        return $scriptTable
+    }
+    [psobject]RunCheck([hashtable]$fromSender){
+        $myFindingID = $fromSender.FindingID
+        $myInstanceName = 
+
+        # get the script for the finding ID given if any
+        $scriptsTable = $this.GetSQLQuery(@{
+            FindingID = $myFindingID
+        })
+
+        $findingIDNeedsScript = [bool]
+        if($scriptsTable -eq 0){
+            $findingIDNeedsScript = $false
+        }else{
+            $findingIDNeedsScript = $true
+        }
+
+
+    }
+}
+$PSSTIGAUDIT = [PSSTIGAUDIT]::New()
+$PSSTIGAUDIT.Initalize(@{
+    ParentFolderPath = '.\test3\'
+})
+$PSSTIGAUDIT.GetSQLQuery(@{
+    FindingID = "V-213987"
+})
+
+
+
 Function Get-FindingChecks {
     param(
         [string]$finding_id
     )
-
-    #$finding_id = 'V-214027'
-
     $checks_table = @{
         'V-214027' = @{
             check_1 = @{
@@ -50,7 +302,7 @@ Function Get-FindingChecks {
                 }
             }
 
-        } # here
+        }
         'V-214021' = @{
             check_1 = @{
                 check_string_substitution_required = $false
@@ -278,34 +530,34 @@ group by name, predicate
                 -- user params
                 -- define as needed
                 declare @param_specification_name varchar(100) =  'successful_login_group'
-                
-                
+               
+               
                 -- table for final results
                 declare @final_assesment table (
                     check_result nvarchar(100),
                     check_value  nvarchar(100),
                     result_type  nvarchar(100)
                 )
-                
+               
                 -- table for condition results
                 declare @check_condition table (
                     check_type varchar(100),
                     check_key  varchar(100),
                     check_val  varchar(100)
                 )
-                
+               
                 declare
                     -- variables for result assignments (use as needed)
                     @_val  nvarchar(100),
                     @_key  nvarchar(100),
                     @_type nvarchar(100),
-                
+               
                     @finding_condition_met int,
                     @check_result int,
                     @check_value varchar(100),
                     @result_type varchar(100)
-                
-                
+               
+               
                 -- condition: how many audits are there?
                 insert into @check_condition
                 select
@@ -319,22 +571,22 @@ group by name, predicate
                         audit_file_path
                     from sys.dm_server_audit_status
                 ) audit_status
-                
-                
+               
+               
                 -- result assignment: the total number of audits
                 set @_val = (
                     select check_val from @check_condition where
                         check_type = 'audit_count' and
                         check_key  = 'total_audits'
                 )
-                
-                
+               
+               
                 -- result assesment
                 if(select @_val) = '0'
                 begin
                     -- result assignment
                     set @finding_condition_met = (select 1)
-                
+               
                     insert into @final_assesment
                     select '1','there is no audit on this instance','audit_enabled_check'
                 end
@@ -342,21 +594,21 @@ group by name, predicate
                 begin
                     set @finding_condition_met = (select 0)
                 end
-                
+               
                 if(@finding_condition_met) = 1
                 begin
                     select * from @final_assesment; return
                 end
-                
+               
                 declare @specification table (
                     id int,
                     name varchar(100)
                 )
-                
+               
                 -- extensible to include more than one type of audit
                 insert into @specification
-                select 1,'successful_login_group' 
-                
+                select 1,'successful_login_group'
+               
                 insert into @check_condition
                 select
                     [check_type] = 'specification_count',
@@ -365,33 +617,33 @@ group by name, predicate
                 from (
                     select
                         [auditname]  = a.[name],
-                        [specname]	 = s.[name], 
-                        [actionname] = d.audit_action_name, 
-                        [result]	 = d.audited_result
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
                     from
                         sys.server_audit_specifications s join
                         sys.server_audits a
                             on s.audit_guid = a.audit_guid join
                         sys.server_audit_specification_details d
-                            on s.server_specification_id = d.server_specification_id 
+                            on s.server_specification_id = d.server_specification_id
                     where
                         a.is_state_enabled  = 1 and
                         d.audit_action_name = (select name from @specification where name = @param_specification_name)
                 ) specifications
-                
-                
+               
+               
                 -- result assignment: the total number of specifications
                 set @_val = (
                     select check_val from @check_condition where
                         check_type = 'specification_count' and
                         check_key  = 'total_specifications'
                 )
-                
+               
                 if(select @_val) = 0
                 begin
                     -- result assignment
                     set @finding_condition_met = (select 1)
-                
+               
                     insert into @final_assesment
                     select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
                 end
@@ -401,7 +653,7 @@ group by name, predicate
                     insert into @final_assesment
                     select '0','there is an audit on instance, and a specification','audit_specification_exist'
                 end
-                
+               
                 select * from @final_assesment
                 "
             }
@@ -418,26 +670,26 @@ group by name, predicate
                     check_value  nvarchar(100),
                     result_type  nvarchar(100)
                 )
-                
+               
                 -- table for condition results
                 declare @check_condition table (
                     check_type varchar(100),
                     check_key  varchar(100),
                     check_val  varchar(100)
                 )
-                
+               
                 declare
                     -- variables for result assignments (use as needed)
                     @_val  nvarchar(100),
                     @_key  nvarchar(100),
                     @_type nvarchar(100),
-                
+               
                     @finding_condition_met int,
-                    @check_result		 int,
-                    @check_value		 varchar(100),
-                    @result_type		 varchar(100)
-                
-                
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
                 -- condition: how many audits are there?
                 insert into @check_condition
                 select
@@ -451,21 +703,21 @@ group by name, predicate
                         audit_file_path
                     from sys.dm_server_audit_status
                 ) audit_status
-                
-                
+               
+               
                 -- result assignment: the total number of audits
                 set @_val = (
                     select check_val from @check_condition where
                         check_type = 'audit_count' and
                         check_key  = 'total_audits'
                 )
-                
+               
                 -- result assesment
                 if(select @_val) = '0'
                 begin
                     -- result assignment
                     set @finding_condition_met = (select 1)
-                
+               
                     insert into @final_assesment
                     select '1','there is no audit on this instance','audit_enabled_check'
                 end
@@ -473,17 +725,17 @@ group by name, predicate
                 begin
                     set @finding_condition_met = (select 0)
                 end
-                
+               
                 if(@finding_condition_met) = 1
                 begin
                     select * from @final_assesment; return
                 end
-                
+               
                 declare @specification table (
                     id int,
                     name varchar(100)
                 )
-                
+               
                 -- extensible to include more than one type of audit
                 insert into @specification
                 select 2,'application_role_change_password_group'
@@ -545,7 +797,7 @@ group by name, predicate
                 select 30,'trace_change_group'
                 union
                 select 31,'user_change_password_group'
-                
+               
                 insert into @check_condition
                 select
                     [check_type] = 'specification_count',
@@ -554,33 +806,33 @@ group by name, predicate
                 from (
                     select
                         [auditname]  = a.[name],
-                        [specname]	 = s.[name], 
-                        [actionname] = d.audit_action_name, 
-                        [result]	 = d.audited_result
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
                     from
                         sys.server_audit_specifications s join
                         sys.server_audits a
                             on s.audit_guid = a.audit_guid join
                         sys.server_audit_specification_details d
-                            on s.server_specification_id = d.server_specification_id 
+                            on s.server_specification_id = d.server_specification_id
                     where
                         a.is_state_enabled  = 1 and
                         d.audit_action_name in (select name from @specification)
                 ) specifications
-                
+               
                 -- result assignment: the total number of specifications
                 set @_val = (
                     select check_val from @check_condition where
                         check_type = 'specification_count' and
                         check_key  = 'total_specifications'
                 )
-                
-                
+               
+               
                 if(select @_val) = 0
                 begin
                     -- result assignment
                     set @finding_condition_met = (select 1)
-                
+               
                     insert into @final_assesment
                     select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
                 end
@@ -590,7 +842,7 @@ group by name, predicate
                     insert into @final_assesment
                     select '0','there is an audit on instance, and a specification','audit_specification_exist'
                 end
-                
+               
                 select * from @final_assesment
 '@
             }
@@ -607,26 +859,26 @@ group by name, predicate
                     check_value  nvarchar(100),
                     result_type  nvarchar(100)
                 )
-                
+               
                 -- table for condition results
                 declare @check_condition table (
                     check_type varchar(100),
                     check_key  varchar(100),
                     check_val  varchar(100)
                 )
-                
+               
                 declare
                     -- variables for result assignments (use as needed)
                     @_val  nvarchar(100),
                     @_key  nvarchar(100),
                     @_type nvarchar(100),
-                
+               
                     @finding_condition_met int,
-                    @check_result		 int,
-                    @check_value		 varchar(100),
-                    @result_type		 varchar(100)
-                
-                
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
                 -- condition: how many audits are there?
                 insert into @check_condition
                 select
@@ -640,21 +892,21 @@ group by name, predicate
                         audit_file_path
                     from sys.dm_server_audit_status
                 ) audit_status
-                
-                
+               
+               
                 -- result assignment: the total number of audits
                 set @_val = (
                     select check_val from @check_condition where
                         check_type = 'audit_count' and
                         check_key  = 'total_audits'
                 )
-                
+               
                 -- result assesment
                 if(select @_val) = '0'
                 begin
                     -- result assignment
                     set @finding_condition_met = (select 1)
-                
+               
                     insert into @final_assesment
                     select '1','there is no audit on this instance','audit_enabled_check'
                 end
@@ -662,17 +914,17 @@ group by name, predicate
                 begin
                     set @finding_condition_met = (select 0)
                 end
-                
+               
                 if(@finding_condition_met) = 1
                 begin
                     select * from @final_assesment; return
                 end
-                
+               
                 declare @specification table (
                     id int,
                     name varchar(100)
                 )
-                
+               
                 -- extensible to include more than one type of audit
                 insert into @specification
                 select 2,'application_role_change_password_group'
@@ -734,7 +986,7 @@ group by name, predicate
                 select 30,'trace_change_group'
                 union
                 select 31,'user_change_password_group'
-                
+               
                 insert into @check_condition
                 select
                     [check_type] = 'specification_count',
@@ -743,33 +995,33 @@ group by name, predicate
                 from (
                     select
                         [auditname]  = a.[name],
-                        [specname]	 = s.[name], 
-                        [actionname] = d.audit_action_name, 
-                        [result]	 = d.audited_result
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
                     from
                         sys.server_audit_specifications s join
                         sys.server_audits a
                             on s.audit_guid = a.audit_guid join
                         sys.server_audit_specification_details d
-                            on s.server_specification_id = d.server_specification_id 
+                            on s.server_specification_id = d.server_specification_id
                     where
                         a.is_state_enabled  = 1 and
                         d.audit_action_name in (select name from @specification)
                 ) specifications
-                
+               
                 -- result assignment: the total number of specifications
                 set @_val = (
                     select check_val from @check_condition where
                         check_type = 'specification_count' and
                         check_key  = 'total_specifications'
                 )
-                
-                
+               
+               
                 if(select @_val) = 0
                 begin
                     -- result assignment
                     set @finding_condition_met = (select 1)
-                
+               
                     insert into @final_assesment
                     select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
                 end
@@ -779,9 +1031,2309 @@ group by name, predicate
                     insert into @final_assesment
                     select '0','there is an audit on instance, and a specification','audit_specification_exist'
                 end
-                
+               
                 select * from @final_assesment
 '@
+            }
+        }
+        'V-214015' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214014' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SUCCESSFUL_LOGIN_GROUP'
+                union
+                select 33,'FAILED_LOGIN_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214012' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214010' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214008' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214006' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214004' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214002' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-214000' = @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-213998'= @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-213995'= @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-213939'= @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'checks to see if there is an audit, and if the audit has the set specification'
+                check_type                          = 'sql_instance_check'
+                check_script                        =@'
+                -- table for final results
+                declare @final_assesment table (
+                    check_result nvarchar(100),
+                    check_value  nvarchar(100),
+                    result_type  nvarchar(100)
+                )
+               
+                -- table for condition results
+                declare @check_condition table (
+                    check_type varchar(100),
+                    check_key  varchar(100),
+                    check_val  varchar(100)
+                )
+               
+                declare
+                    -- variables for result assignments (use as needed)
+                    @_val  nvarchar(100),
+                    @_key  nvarchar(100),
+                    @_type nvarchar(100),
+               
+                    @finding_condition_met int,
+                    @check_result int,
+                    @check_value varchar(100),
+                    @result_type varchar(100)
+               
+               
+                -- condition: how many audits are there?
+                insert into @check_condition
+                select
+                    [check_type] = 'audit_count',
+                    [check_key]  = 'total_audits',
+                    [check_val] = count(*)
+                from (
+                    select
+                        name,
+                        status_desc,
+                        audit_file_path
+                    from sys.dm_server_audit_status
+                ) audit_status
+               
+               
+                -- result assignment: the total number of audits
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'audit_count' and
+                        check_key  = 'total_audits'
+                )
+               
+                -- result assesment
+                if(select @_val) = '0'
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is no audit on this instance','audit_enabled_check'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                end
+               
+                if(@finding_condition_met) = 1
+                begin
+                    select * from @final_assesment; return
+                end
+               
+                declare @specification table (
+                    id int,
+                    name varchar(100)
+                )
+               
+                -- extensible to include more than one type of audit
+                insert into @specification
+                select 2,'application_role_change_password_group'
+                union
+                select 3,'audit_change_group'
+                union
+                select 4,'backup_restore_group'
+                union
+                select 5,'database_change_group'
+                union
+                select 6,'database_object_change_group'
+                union
+                select 7,'database_object_ownership_change_group'
+                union
+                select 8,'database_object_permission_change_group'
+                union
+                select 9,'database_operation_group'
+                union
+                select 10,'database_ownership_change_group'
+                union
+                select 11,'database_permission_change_group'
+                union
+                select 12,'database_principal_change_group'
+                union
+                select 13,'database_principal_impersonation_group'
+                union
+                select 14,'database_role_member_change_group'
+                union
+                select 15,'dbcc_group'
+                union
+                select 16,'login_change_password_group'
+                union
+                select 17,'logout_group'
+                union
+                select 18,'schema_object_change_group'
+                union
+                select 19,'schema_object_ownership_change_group'
+                union
+                select 20,'schema_object_permission_change_group'
+                union
+                select 21,'server_object_change_group'
+                union
+                select 22,'server_object_ownership_change_group'
+                union
+                select 23,'server_object_permission_change_group'
+                union
+                select 24,'server_operation_group'
+                union
+                select 25,'server_permission_change_group'
+                union
+                select 26,'server_principal_change_group'
+                union
+                select 27,'server_principal_impersonation_group'
+                union
+                select 28,'server_role_member_change_group'
+                union
+                select 29,'server_state_change_group'
+                union
+                select 30,'trace_change_group'
+                union
+                select 31,'user_change_password_group'
+                union
+                select 32,'SCHEMA_OBJECT_ACCESS_GROUP'
+               
+                insert into @check_condition
+                select
+                    [check_type] = 'specification_count',
+                    [check_key]  = 'total_specifications',
+                    [check_val] = count(*)
+                from (
+                    select
+                        [auditname]  = a.[name],
+                        [specname] = s.[name],
+                        [actionname] = d.audit_action_name,
+                        [result] = d.audited_result
+                    from
+                        sys.server_audit_specifications s join
+                        sys.server_audits a
+                            on s.audit_guid = a.audit_guid join
+                        sys.server_audit_specification_details d
+                            on s.server_specification_id = d.server_specification_id
+                    where
+                        a.is_state_enabled  = 1 and
+                        d.audit_action_name in (select name from @specification)
+                ) specifications
+               
+                -- result assignment: the total number of specifications
+                set @_val = (
+                    select check_val from @check_condition where
+                        check_type = 'specification_count' and
+                        check_key  = 'total_specifications'
+                )
+               
+               
+                if(select @_val) = 0
+                begin
+                    -- result assignment
+                    set @finding_condition_met = (select 1)
+               
+                    insert into @final_assesment
+                    select '1','there is an audit on instance, but ther is no specification set','audit_specification_exist'
+                end
+                else
+                begin
+                    set @finding_condition_met = (select 0)
+                    insert into @final_assesment
+                    select '0','there is an audit on instance, and a specification','audit_specification_exist'
+                end
+               
+                select * from @final_assesment
+'@
+            }
+        }
+        'V-213994'= @{
+            check_1 = @{
+                check_string_substitution_required  = $false
+                check_script_description            = 'get the current sql version'
+                check_type                          = 'sql_instance_check'
+                check_script                        = 'select @@version as check_result'
             }
         }
     }
@@ -1038,6 +3590,7 @@ Function Get-SqlInstances {
     }
     $instance_names_list | Group-Object -Property host_name -AsHashTable
 }
+# funding 1
 Function Run-Finding214042{
       param(
           $enclave
@@ -1090,13 +3643,13 @@ Function Run-Finding214042{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.status){
               'Running' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $check_description. Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               'Stopped' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $check_description. Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1107,6 +3660,7 @@ Function Run-Finding214042{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 2
 Function Run-Finding214045{
     param([string]$InstanceName,[string]$enclave)
 
@@ -1200,6 +3754,7 @@ Function Run-Finding214045{
     $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
     $CheckResultsTable
 }
+# funding 3
 Function Run-Finding214044{
       param(
            [string[]]$InstanceName,
@@ -1289,13 +3844,13 @@ Function Run-Finding214044{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.hidden){
               'No' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               'Yes' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1306,6 +3861,7 @@ Function Run-Finding214044{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 4
 Function Run-Finding214043{
       param(
            [string[]]$InstanceName,
@@ -1390,13 +3946,13 @@ Function Run-Finding214043{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1407,6 +3963,7 @@ Function Run-Finding214043{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 5
 Function Run-Finding214041{
       param(
            [string[]]$InstanceName,
@@ -1490,13 +4047,13 @@ Function Run-Finding214041{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1507,6 +4064,7 @@ Function Run-Finding214041{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 6
 Function Run-Finding214040{
       param(
            [string[]]$InstanceName,
@@ -1590,13 +4148,13 @@ Function Run-Finding214040{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1607,6 +4165,7 @@ Function Run-Finding214040{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 7
 Function Run-Finding214039{
       param(
            [string[]]$InstanceName,
@@ -1690,13 +4249,13 @@ Function Run-Finding214039{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1707,6 +4266,7 @@ Function Run-Finding214039{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 8
 Function Run-Finding214038{
       param(
            [string[]]$InstanceName,
@@ -1790,13 +4350,13 @@ Function Run-Finding214038{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1807,6 +4367,7 @@ Function Run-Finding214038{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 9
 Function Run-Finding214037{
       param(
            [string[]]$InstanceName,
@@ -1890,13 +4451,13 @@ Function Run-Finding214037{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -1907,6 +4468,7 @@ Function Run-Finding214037{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 10
 Function Run-Finding214036{
       param(
            [string[]]$InstanceName,
@@ -1991,13 +4553,13 @@ Function Run-Finding214036{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2008,6 +4570,7 @@ Function Run-Finding214036{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 11
 Function Run-Finding214035{
       param(
            [string[]]$InstanceName,
@@ -2091,13 +4654,13 @@ Function Run-Finding214035{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2108,6 +4671,7 @@ Function Run-Finding214035{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 12
 Function Run-Finding214034{
       param(
            [string[]]$InstanceName,
@@ -2189,13 +4753,13 @@ Function Run-Finding214034{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.config_value){
               '1' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               '0' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2206,6 +4770,7 @@ Function Run-Finding214034{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 13
 Function Run-Finding214033{
       param(
            [string[]]$InstanceName,
@@ -2314,13 +4879,13 @@ Function Run-Finding214033{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.results){
               {$_ -gt 0} {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               {$_ -eq 0} {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2331,6 +4896,7 @@ Function Run-Finding214033{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 14
 Function Run-Finding214032{
       param(
           $enclave
@@ -2387,13 +4953,13 @@ Function Run-Finding214032{
       }
           switch($CheckResultsTable.check_results){
               'not_using_tls' {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $check_description. Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               'using_tls' {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'. $check_description. Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2404,6 +4970,7 @@ Function Run-Finding214032{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 15
 Function Run-Finding214031{
       param(
            [string[]]$InstanceName,
@@ -2487,13 +5054,13 @@ Function Run-Finding214031{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.Results){
               {$_ -gt 0} {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               {$_ -eq 0} {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2504,6 +5071,7 @@ Function Run-Finding214031{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 16
 Function Run-Finding214030{
       param(
            [string[]]$InstanceName,
@@ -2587,13 +5155,13 @@ Function Run-Finding214030{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.Results){
               {$_ -gt 0} {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               {$_ -eq 0} {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2604,6 +5172,7 @@ Function Run-Finding214030{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 17
 Function Run-Finding214029{
       param(
            [string[]]$InstanceName,
@@ -2687,13 +5256,13 @@ Function Run-Finding214029{
       if($CheckResultsTable.status -eq 'evaluate'){
           switch($CheckResultsTable.check_results.Results){
               {$_ -gt 0} {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               {$_ -eq 0} {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2704,6 +5273,7 @@ Function Run-Finding214029{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 18
 Function Run-Finding214028{
     param([string]$InstanceName,[string]$enclave)
 
@@ -2797,6 +5367,7 @@ Function Run-Finding214028{
     $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
     $CheckResultsTable
 }
+# funding 19
 Function Run-Finding214027{
       param([string]$InstanceName,[string]$enclave)
 
@@ -2870,13 +5441,13 @@ Function Run-Finding214027{
  
         switch($CheckResultsTable.check_results.status){
               {$_ -eq 'open'} {
-                  $CheckResultsTable.status = 'Open'
+                  $CheckResultsTable.check_results = 'Open'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
               }
               {$_ -eq 'not_a_finding'} {
-                  $CheckResultsTable.status = 'not_a_finding'
+                  $CheckResultsTable.check_results = 'not_a_finding'
                   $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
                   $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
                   $CheckResultsTable.comments = $comment_string
@@ -2886,6 +5457,7 @@ Function Run-Finding214027{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 20
 Function Run-Finding214026{
       param([string]$InstanceName,[string]$enclave)
 
@@ -3000,6 +5572,7 @@ Function Run-Finding214026{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 21
 Function Run-Finding214025{
       param([string]$InstanceName,[string]$enclave)
 
@@ -3087,6 +5660,7 @@ Function Run-Finding214025{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 22
 Function Run-Finding214024{
       param([string]$InstanceName,[string]$enclave)
 
@@ -3176,6 +5750,7 @@ Function Run-Finding214024{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 23
 Function Run-Finding214023{
       param([string]$InstanceName,[string]$enclave)
 
@@ -3265,6 +5840,7 @@ Function Run-Finding214023{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 24
 Function Run-Finding214021{
       param([string]$InstanceName,[string]$enclave)
 
@@ -3353,6 +5929,7 @@ Function Run-Finding214021{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 25
 Function Run-Finding214020{
       param([string]$InstanceName,[string]$enclave)
 
@@ -3439,6 +6016,7 @@ Function Run-Finding214020{
       $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
       $CheckResultsTable
 }
+# funding 26
 Function Run-Finding213934{
     param([string]$InstanceName,[string]$enclave)
 
@@ -3532,13 +6110,14 @@ Function Run-Finding213934{
     $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
     $CheckResultsTable
 }
+# funding 27
 Function Run-Finding213932{
     param([string]$InstanceName,[string]$enclave)
 
   $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
   $finding_id                = 'V-213932'
-  $remediate_file_name       = 'Remediate-SQL-Secure_NT_AUTHORITY_SYSTEM.md'
-  $check_description         = 'SQL Server must protect against a user falsely repudiating by ensuring the NT AUTHORITY SYSTEM account is not used for administration.'
+  $remediate_file_name       = 'Remediate-Access_request_Form.md'
+  $check_description         = 'SQL Server must enforce approved authorizations for logical access to information and system resources in accordance with applicable access control policies.'
   $cat_level                 = '1'
 
   # check to see uwhat if any script will be ran
@@ -3580,13 +6159,9 @@ Function Run-Finding213932{
 
   # the results are evaluated by the type of check, the exections are evaluated
   $my_considerations = @{
-      remarks = 'when checking to see the permission over allocation, the stig defines the finding as open or not given a set of conditions, those conditon where checked to asses finding'
+      remarks = 'there just needs to be a process in place that people can follow when it comes to requesting login/access to a database, till one is defined, this will be open'
   }
-  if($check_results_table[$checks_list[0]].check_result  -eq 1){
-    $status = 1
-  }else{
-    $status = 0
-  }
+  $status = 1
 
 
     # each instance will make a connection to the thing they need
@@ -3625,8 +6200,7 @@ Function Run-Finding213932{
     $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
     $CheckResultsTable
 }
-
-# written from home
+# funding 28
 
 Function Run-Finding214018{
     param([string]$InstanceName,[string]$enclave)
@@ -3637,8 +6211,6 @@ Function Run-Finding214018{
     $check_description         = 'SQL Server must generate audit records when concurrent logons/connections by the same user from different workstations occur.'
     $cat_level                 = '2'
     # test
-    $instanceName = 'DEV-SQL01\SANDBOX01'
-    $enclave = 'test'
     # check to see uwhat if any script will be ran
     $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
     if($scripts_to_rn -eq 0){
@@ -3719,6 +6291,7 @@ Function Run-Finding214018{
     $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
     $CheckResultsTable
 }
+# funding 29
 Function Run-Finding214017{
     param([string]$InstanceName,[string]$enclave)
 
@@ -3728,10 +6301,6 @@ Function Run-Finding214017{
     $check_description         = 'SQL Server must generate audit records showing starting and ending time for user access to the database(s).'
     $cat_level                 = '2'
    
-        $instanceName = 'DEV-SQL01\SANDBOX01'
-        $enclave = 'test'
-    
-
     # check out the script to run for this finding, if any...
     $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
     if($scripts_to_rn -eq 0){
@@ -3811,6 +6380,7 @@ Function Run-Finding214017{
     $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
     $CheckResultsTable
 }
+# funding 30
 Function Run-Finding214016{
     param([string]$InstanceName,[string]$enclave)
 
@@ -3819,10 +6389,6 @@ Function Run-Finding214016{
     $remediate_file_name       = 'Remediate-Generate_Start_End_Logs.md'
     $check_description         = 'SQL Server must generate audit records showing starting and ending time for user access to the database(s).'
     $cat_level                 = '2'
-   
-        $instanceName = 'DEV-SQL01\SANDBOX01'
-        $enclave = 'test'
-    
 
     # check out the script to run for this finding, if any...
     $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
@@ -3903,3 +6469,1583 @@ Function Run-Finding214016{
     $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
     $CheckResultsTable
 }
+# funding 31
+Function Run-Finding214015{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214015'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214015_Finding.md'
+    $check_description         = 'SQL Server must generate audit records for all privileged activities or other system-level access.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'The specifications, this audit is in reference to, is already covered by a previous STIG.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = [string]
+        check_results        =  $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 32
+Function Run-Finding214014{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214014'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214014_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful logons or connection attempts occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the addition of 1 additional audit specifications that are not convered by the previous check of this kind SCHEMA_OBJECT_ACCESS_GROUP'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 33
+Function Run-Finding214010{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214010'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214010_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful attempts to delete security objects occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind. Check to see if SCHEMA_OBJECT_CHANGE_GROUP is in the specifications for the STIG _Audit'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 34
+Function Run-Finding214008{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214008'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214008_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful attempts to delete privileges/permissions occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 35
+Function Run-Finding214006{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214006'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214006_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful attempts to modify categorized information (e.g., classification levels/security levels) occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications SCHEMA_OBJECT_ACCESS_GROUP, that is already convered by the previous check of this kind.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 36
+Function Run-Finding214004{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214004'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214004_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful attempts to modify security objects occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind. Check to see if SCHEMA_OBJECT_CHANGE_GROUP is in the specifications for the STIG _Audit'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 37
+Function Run-Finding214002{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214002'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214002_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful attempts to modify privileges/permissions occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 38
+Function Run-Finding214000{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-214000'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-214000_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful attempts to add privileges/permissions occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 39
+Function Run-Finding213998{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213998'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213998_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful and unsuccessful attempts to access categorized information (e.g., classification levels/security levels) occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 40
+Function Run-Finding213995{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213995'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213995_Finding.md'
+    $check_description         = 'SQL Server must be able to generate audit records when successful and unsuccessful attempts to access security objects occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# funding 41
+Function Run-Finding213939{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213939'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213939_Finding.md'
+    $check_description         = 'SQL Server must generate audit records when successful/unsuccessful attempts to retrieve privileges/permissions occur.'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = 'This finding defines the an audit specifications that is already convered by the previous check of this kind.'
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    if($check_results_table[$checks_list[0]].check_result  -eq 1){
+        $status = 1 # is a finding
+    }else{
+        $status = 0 # not a finding
+    }
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# finding 42
+Function Run-Finding213994{
+    param([string]$InstanceName,[string]$enclave,$this_kb)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213994'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213994_Finding.md'
+    $check_description         = 'Security-relevant software updates to SQL Server must be installed within the time period directed by an authoritative source (e.g. IAVM, CTOs, DTMs, and STIGs).'
+    $cat_level                 = '2'
+
+    # check out the script to run for this finding, if any...
+    $scripts_to_rn = (Get-FindingChecks -finding_id $finding_id)
+    if($scripts_to_rn -eq 0){
+        $no_checks_run_scripts = $true
+    }else{
+        $no_checks_run_scripts = $false
+    }
+
+    # only when there is scripts to run do we care to do this step
+    $checks_list = @()
+    $check_type = (Get-FindingChecks -finding_id $finding_id).check_type
+    $check_todo = (Get-FindingChecks -finding_id $finding_id).check_script
+
+    if($no_checks_run_scripts -eq $false){
+        switch($check_type){
+            'sql_instance_check'{
+                $checks_list += 'sql_instance_check'
+                $is_sql_instance_check = $true
+                $Query_Params = @{
+                    instance_name   = $InstanceName
+                    database_name   = 'master'
+                    query           = $check_todo
+                }
+            }
+        }
+    }
+
+    $check_results_table = @{}
+    # here we do the checks that will query a database
+    if($is_sql_instance_check){
+        [array]$sql_query_result = (Invoke-UDFSQLCommand -Query_Params $Query_Params)
+        $check_results_table.Add('sql_instance_check',$sql_query_result)
+    }
+    # create a temp file in c:\temp
+    $cache_dir = "C:\temp"
+    $cache_file = '\last_time_check_for_sql_patches.log'
+
+    $dir_exists = test-path $cache_dir
+    if(-not($dir_exists)){
+        New-Item -Path $cache_dir -ItemType 'Directory'
+    }
+
+    $cache_path = "$($cache_dir)$($cache_file)"
+    $cache_file_created = [bool]
+    if(-not(Test-Path $cache_path)){
+        $cache_file_created = $true
+        New-Item -Path  $cache_path -ItemType 'File' | Out-Null
+    }else{
+        $cache_file_created = $false
+    }
+
+    if($cache_file_created){
+        $date_string = (get-date).ToString('yyyy-MM-dd HH:mm:ss')
+        Set-Content -Value $date_string -path $cache_path
+    }
+
+    $datetimeString = Get-Content -Path $cache_path
+    $format = "yyyy-MM-dd HH:mm:ss"
+    $nullValue = $null
+    $datetime = [DateTime]::ParseExact($datetimeString, $format, $nullValue)
+
+    # check should be done every 3 weeks or 21 days
+    $current_date_time = get-date
+    $date_window = $current_date_time.AddDays(-21)
+
+    # its a finding if not checked within the set 21 days
+    if(-not($datetime -gt $date_window)){
+        $check_patch_value = "the last time the patch was check was '$($datetime)', in compliance. {0}."
+        $status = 0
+    }else{
+        $check_patch_value = "the last time the patch was check was '$($datetime)' out of compliance, check every '21' days. {0}"
+        $status = 1
+    }
+
+    ($check_results_table[$checks_list[0]].check_result) -match '(.*) (\(KB.*\)) - (.*) \(.*\)'
+    $product_version    = $matches[3]
+    $KB                 = (($matches[2]).Replace('(','')).Replace(')','')
+
+    $sql_version_stats = @{
+        product_version = $product_version
+        kb = $kb
+    }
+    if($sql_version_stats.kb -notmatch $this_kb){
+        $check_kb_version_value =" You are running and older version then the one provided, remediate by patching."
+        $status = 1
+    }else{
+       
+        $status = 0
+        $check_kb_version_value =" You are running the current version available of the SQL engine."
+    }
+
+    $Final_check_value = $check_patch_value -f $check_kb_version_value
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = $Final_check_value
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# finding 43
+Function Run-Finding213993{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213993'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213993_Finding.md'
+    $check_description         = 'When updates are applied to SQL Server software, any software components that have been replaced or made unnecessary must be removed.'
+    $cat_level                 = '2'
+
+    # create a temp file in c:\temp
+    $software_dir = "C:\temp"
+    $software_file = '\software_list.csv'
+
+    $dir_exists = test-path $software_dir
+    if(-not($dir_exists)){
+        New-Item -Path $software_dir -ItemType 'Directory'
+    }
+
+    $software_path = "$($software_dir)$($software_file)"
+    $software_file_created = [bool]
+    if(-not(Test-Path $software_path)){
+        $software_file_created = $true
+        New-Item -Path  $software_path -ItemType 'File' | Out-Null
+    }else{
+        $software_file_created = $false
+    }
+
+    if($software_file_created){
+        $installed_products = Get-WmiObject -Class Win32_Product | Select-Object -Property Name, Version
+        $product_audit_table = @{}
+        $product_audit_list = @()
+        foreach($product_installed in $installed_products){
+            $product_audit_table =  @{
+                host_name =     $env:COMPUTERNAME
+                software_name = $product_installed.name
+                software_version = $product_installed.Version
+            }
+            $product_audit_list  += (ConvertFrom-Hashtable $product_audit_table)
+        }
+        $my_csv_data = ($product_audit_list | ConvertTo-Csv -NoTypeInformation)
+        Set-Content -Value $my_csv_data -path $software_path
+    }
+
+    $software_list = (Get-Content -Path $software_path) | ConvertFrom-Csv
+
+    $is_the_software_list_documented = [bool]
+    if( $null -eq $software_list){
+        $is_the_software_list_documented = $false
+    }else{
+        $is_the_software_list_documented = $true
+    }
+
+    if($is_the_software_list_documented){
+        $check_value ="All software is documented. validate documentation exists in C:\temp on this host. Keep a copy of this documentation in a location appropriate for the content"
+        $status = 0
+    }else{
+       
+        $status = 1
+        $check_value =" Software running on host is not documented."
+    }
+
+    $Final_check_value = $check_value
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = $Final_check_value
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+# finding 44
+Function Run-Finding213969{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213969'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213969_Finding.md'
+    $check_description         = 'SQL Server must use NIST FIPS 140-2 or 140-3 validated cryptographic modules for cryptographic operations.'
+    $cat_level                 = '1'
+
+   
+    if ([System.Security.Cryptography.Cryptoconfig]::AllowOnlyFipsAlgorithms) {
+        $Final_check_value = 'Fips Algorithms is enabled.'
+        $status = 0
+    } else {
+        $Final_check_value = 'Fips Algorithms is not enabled.'
+        $status = 1
+    }
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = $Final_check_value
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+
+# finding 44
+Function Run-Finding213990{
+    param([string]$InstanceName,[string]$enclave)
+
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213990'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213990_Finding.md'
+    $check_description         = 'SQL Server must disable network functions, ports, protocols, and services deemed by the organization to be nonsecure, in accord with the Ports, Protocols, and Services Management (PPSM) guidance.'
+    $cat_level                 = '2'
+
+    $processes_info  = Get-NetTCPConnection | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess
+
+    $sql_related_processes = (Get-Process -name "*SQL*")
+    $process_collection = @()
+    foreach($pi1d in $sql_related_processes){
+     foreach($process_captured in $processes_info){
+        $is_sql_proc = $process_captured | select * | where {$_.OwningProcess -eq $pi1d.id }
+        if(-not($null -eq $is_sql_proc)){
+        $by_hash = @{
+            localport_used = $is_sql_proc.localport
+            process_name = $pi1d.ProcessName
+        }
+            $process_collection += ConvertFrom-Hashtable $by_hash
+           
+        }
+     }
+    }
+   
+    $Final_check_value = 'Ports being used need to be documented.'
+    $status = 1
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = $Final_check_value
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+
+Function Run-Finding213988{
+    param([string]$InstanceName,[string]$enclave)
+    $documentation_parent_path = '\\petencnfs04\CCRI_LIBRARY\SysAd NIPRNET CM STIGS\RemediationDocumentation\'
+    $finding_id                = 'V-213989'
+    $remediate_file_name       = 'Remediate-SQL_Instance_Lvl-213988_Finding.md'
+    $check_description         = 'Windows must enforce access restrictions associated with changes to the configuration of the SQL Server instance.'
+    $cat_level                 = '2'
+
+    # get the administrator accounts on the host
+    $groupResults   = Get-LocalGroupMember -Group "Administrators"
+    $fromSender     = @{
+        FolderPath      = '.\testoutput\'
+        FileName        = 'Accounts.csv'
+    }
+
+    # define a path
+    $accountFolderPath  = ($fromSender.FolderPath)
+    $accountFileName    = ($fromSender.FileName)
+    $accountFilePath    = "$($accountFolderPath)$($accountFileName)"
+
+    # create the file is its not currently there
+    if(-not(Test-Path -Path $accountFolderPath)){
+        New-Item -ItemType Directory -Path $accountFolderPath | Out-Null
+    }
+    if(-not(Test-Path -Path $accountFilePath)){
+        New-Item -ItemType File -Path $accountFilePath | Out-Null
+    }
+    
+    # add info to the file
+    $headingString  = [string]
+    $myHostName     = HostName
+    $headingsList   = @("RecordID","HostName","PrincipalSource","AccountName","Description")
+    $headingString  ='"{0}"' -f ($headingString = $headingsList -join '","')
+    $myContent = Get-Content -path $accountFilePath | ConvertFrom-Csv -Delimiter ","
+
+    if(0 -eq [int]$myContent.count){
+        Add-Content -Path $accountFilePath -Value $headingString 
+    }
+
+    if(0 -eq [int]$myContent.count){
+        [int]$recordID = 1
+    }else{
+        [int]$recordID = [int]$myContent.RecordID[-1]+1
+    }
+
+    $myEntriesList  = @()
+    foreach($accountName in $groupResults){
+        $entryString    = [string]
+        $myEntry        = @("$recordID","$myHostName","$accountName","NULL")
+        $entryString    =  '"{0}"'-f ($entryString = $myEntry -join '","')
+        $myEntriesList += $entryString
+        $recordID       = ($recordID) + 1
+    }
+
+    Add-Content -Path $accountFilePath -Value $myEntriesList
+
+    $status = 0
+
+    # use considerations for a comment section
+    # the results are evaluated by the type of check, the exections are evaluated
+    $my_considerations = @{
+        contanct_info    = "Check performed by : $env:USERNAME"
+        date_check_done  = $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss.000'))
+        remarks          = $Final_check_value
+        instructions     = "See '$($documentation_parent_path)$($remediate_file_name)' for additional documenatation on this finding and how to resolve it"
+    }
+
+    # each instance will make a connection to the thing they need
+    $CheckResultsTable = @{
+        finding_id           = $finding_id
+        considerations       = $my_considerations
+        ResolutionFile       = "$($documentation_parent_path)$($remediate_file_name)"
+        host_name            = $instancename
+        ipaddress            = ((Get-NetIPConfiguration).IPv4Address).IPAddress
+        mac_address          = (Get-NetAdapter).macAddress
+        cat                  = $cat_level
+        check_description    = $check_description
+        comments             = $my_considerations
+        check_results        = $status
+        enclave              = $enclave
+        datetime_checked     = (get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+        csv_formatted        = [string]
+    }
+
+    switch($status){
+        {$_ -eq 1} {
+            $CheckResultsTable.check_results = 'Open'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+        {$_ -eq 0} {
+            $CheckResultsTable.check_results = 'not_a_finding'
+            $comment_string = "`Host '{0}' check, finding '{1}' for finding ID '{2}'.$($CheckResultsTable.check_description). Review {3} for resolution"
+            $comment_string = $comment_string -f $CheckResultsTable.host_name,$CheckResultsTable.status,$CheckResultsTable.finding_id, $CheckResultsTable.ResolutionFile
+            $CheckResultsTable.comments = $comment_string
+        }
+    }
+    $check_object = ConvertFrom-Hashtable  $CheckResultsTable | Select-Object -Property * -ExcludeProperty ('csv_formatted','check_results')
+    $CheckResultsTable.csv_formatted = ($check_object | convertto-csv -NoTypeInformation)
+    $CheckResultsTable
+}
+
+
+$myMembersList = $PSSTIGAUDIT.ReadFromSource(@{SourceFileName = "SQLRoleMembersList"})
+
+$selectString   = "Select [Member] = '{0}',[Type] = '{1}', [Role] = '{2}'{3}"
+$itemCount      = $myMembersList.count
+$itemCounter    = 1
+$commanSelect   = @()
+foreach($member in $myMembersList){
+    if($itemCounter -ne $itemCount){
+        $stringCopy = $selectString -f $member.Member,$member.Type,$member.Role,"`nUnion"
+    }else{
+        $stringCopy = $selectString -f $member.Member,$member.Type,$member.Role,""
+    }
+    $commanSelect += $stringCopy
+    $itemCounter++
+}
+$commanSelect = $commanSelect -join "`n"
+$queryParams = @{
+    instance_name   = "DEVBOX01"
+    database_name   = "master"
+    query           = $commanSelect
+}
+Invoke-UDFSQLCommand -Query_Params $queryParams
+
+
+
+SELECT m.name AS Member, 
+	m.type_desc AS Type, 
+	r.name AS Role 
+	FROM sys.server_principals m 
+	INNER JOIN sys.server_role_members rm ON m.principal_id = rm.member_principal_id 
+	INNER JOIN sys.server_principals r ON rm.role_principal_id = r.principal_id 
+	WHERE r.name IN ('sysadmin','securityadmin','serveradmin') 
