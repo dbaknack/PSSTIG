@@ -2,6 +2,14 @@ Function PSSTIG {
     $PSSTIG =  [PSSTIG]::new()
     $PSSTIG
 }
+Function PSSTIGVIEWER{
+    $PSSTIGVIEWER = [PSSTIGVIEWER]::new()
+    $PSSTIGVIEWER
+}
+Function PSSTIGMANUAL{
+    $PSSTIGMANUAL = [PSSTIGMANUAL]::new()
+    $PSSTIGMANUAL
+}
 Function Invoke-UDFSQLCommand{
     param(
         [hashtable]$Query_Params
@@ -31,6 +39,47 @@ Function Invoke-UDFSQLCommand{
     $sqlconnection.dispose()    # TO-DO: make sure the connection does close
     $resultsreturned
 }
+Function Get-TargetData{
+    param(
+        [string]$CheckListName,
+        [psobject]$Session
+    )
+    $myCheckListFolderPath  = $PSSTIG.Configuration.Folders.CheckLists.Path
+    $myCheckListFile        = Get-ChildItem -Path $myCheckListFolderPath -Filter "$CheckListName.cklb"
+
+    $myCheckListData = $PSSTIG.GetCheckListData(@{
+        CheckListName = $CheckListName
+    })
+
+    $technologyArea = switch($PSSTIG.PlatformParameters.OS){"onWindows" {"Windows OS"}}
+
+    $myResults = Invoke-Command -Session $Session -ScriptBlock {
+        $MACAddress     = (Get-NetAdapter)[0] | Select-Object MacAddress
+        $IPv4           = (Get-NetIPConfiguration)[0] | Select-Object IPv4Address
+        $FQDN           = [System.Net.Dns]::GetHostEntry([System.Net.Dns]::GetHostName()).HostName
+        $HostName       = HostName
+        $myResults = @{
+            MACAddress = $MACAddress
+            IPV4        = $IPv4
+            FQDN        = $FQDN
+            HostName    = $HostName
+        }
+        $myResults
+    }
+    $myResults.Add("TechnologyArea",$technologyArea)
+
+    $myTargetData                   = $myCheckListData.target_data
+    $myTargetData.host_name         = $myResults.HostName
+    $myTargetData.ip_address          = $myResults.IPV4.IPv4Address.IPAddress
+    $myTargetData.mac_address       = $myResults.MACAddress.MacAddress
+    $myTargetData.technology_area   = $technologyArea
+    $myTargetData.fqdn              = $myResults.FQDN
+    $myCheckListData.target_data    = $myTargetData
+
+    $myCheckListDataConverted = $myCheckListData | ConvertTo-Json -Depth 5
+    Set-Content -path  $myCheckListFile.FullName -Value $myCheckListDataConverted
+}
+# finding 1
 Function Invoke-Finding213988{
     param(
         [string]$Hostname,
@@ -194,6 +243,7 @@ Function Invoke-Finding213988{
         })
     }
 }
+# finding 2
 Function Invoke-Finding213987{
     param(
         [string]$HostName,
@@ -473,3 +523,14 @@ Function Invoke-Finding213987{
         }
     }
 }
+#finding 3
+Function Invoke-Finding214042{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+}
+

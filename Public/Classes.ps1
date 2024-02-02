@@ -40,17 +40,19 @@ Class PSSTIG{
     $FindingInfo = @{
        
     }
-    $ViewerControls = @{
-        Path    = [string]
-        State   = [string]
-    }
+
     $SessionsTable = @{}
     $PSUTILITIES        = (PSUTILITIES)
     $PlatformParameters = (PlatformParameters)
     $Separator          = $this.PlatformParameters.Separator
     $myMessage          = "[{0}]:: {1}"
     $CheckListTemplates = (Get-ChildItem -path "$((get-Location).path)$($this.Separator)Private$($this.Separator)CheckListTemplates$($this.Separator)")
-    $HOSTDATA = @{}
+    $HOSTDATA = @{
+        SQLServerInstance = @(
+            [pscustomobject]@{ InstID = 1; Enclave = "DEVNET" ;HostName = "VIPTO-POWERSHELL"; NamedInstance  = $true; InstanceName = "SANDBOX01";   CheckListType = "SQLServerInstance"}
+        )
+    }
+
     [void]GetFindingInfo([hashtable]$fromSender){
         $myCheckListName    = $fromSender.CheckListName
         $myFindingID        = $fromSender.FindingID
@@ -176,6 +178,7 @@ Class PSSTIG{
     [psobject]StoreASession([hashtable]$fromSender){
         $myHostName = $fromSender.HostName
         $sessionEstablished = [bool]
+        
         try{
             $sessionEstablished = $true
             $this.SessionsTable.Add($myHostName,(New-PSSession -ComputerName  $myHostName -Credential ($fromSender.Creds) -ErrorAction Stop))
@@ -730,6 +733,12 @@ Class PSSTIG{
             }
    
             $myPropertiesFolderPath = ("{0}{1}" -f $CheckListPropertiesFolderPath,$propertiesFolder)
+            $this.PSUTILITIES.DisplayMessage(@{
+                Message     = $myPropertiesFolderPath
+                Type        = "debug"
+                Category    = "debug"
+            })
+
             if($createPropertiesFolder){
                 New-Item -itemtype Directory -Name $myPropertiesFolderPath
             }
@@ -921,5 +930,129 @@ Class PSSTIG{
             }
         }
         return $scriptTable
+    }
+}
+Class PSSTIGVIEWER{
+    $StigViewerProcessName = "Stig Viewer 3"
+    $PathToEXE = [string]
+    $myMessage = "[{0}]:: {1}"
+
+    [psobject]GetProcessesRunning(){
+        $StigViewRunning = [bool]
+        try{
+            $StigViewRunning = $true
+            Get-Process $this.StigViewerProcessName
+        }catch{
+            $StigViewRunning = $false
+        }
+
+        
+        if($StigViewRunning){
+            $myProcesses = Get-Process $this.StigViewerProcessName
+        }else{
+            $myProcesses = 0
+        }
+
+        return $myProcesses
+    }
+    [bool]GetProcessStatus(){
+        $StigViewRunning = [bool]
+        try{
+            $StigViewRunning = $true
+            Get-Process $this.StigViewerProcessName
+        }catch{
+            $StigViewRunning = $false
+        }
+        return $StigViewRunning
+    }
+    [void]Initalize([hashtable]$fromSender){
+        $this.PathToEXE = ($fromSender.ExePath)
+    }
+    [void]StartStigViewer(){
+        $METHOD_NAME = "StartStigViewer"
+        $myExePath = $this.PathToEXE
+
+        $validExePath = Test-Path -Path $myExePath
+
+        if($validExePath -eq $false){
+            $msgError = ($this.myMessage -f $METHOD_NAME, "Exe path '$($myExePath)' is invalid.")
+            Write-Error -Message $msgError; $Error[0]
+            return
+        }
+
+        $viewerRunning = $this.GetProcessStatus()
+        if($viewerRunning -eq $true){
+            $msgError = ($this.myMessage -f $METHOD_NAME,"StigViewer is already running...")
+            Write-Error -Message $msgError; $Error[0]
+            return
+        }
+
+        Start-Process -FilePath $myExePath
+        $myStatus = [bool]
+        do{
+            Start-Sleep -Seconds 2
+            $myStatus = ($this.GetProcessStatus()) 
+        }while($myStatus-eq $false)
+        Start-Sleep -Seconds 3
+        Clear-host
+    }
+    [void]StopStigViewer(){
+        $METHOD_NAME = "StopStigViewer"
+
+        $viewerRunning = $this.GetProcessStatus()
+        if($viewerRunning -eq $false){
+            $msgError = ($this.myMessage -f $METHOD_NAME,"StigViewer is already stopped...")
+            Write-Error -Message $msgError; $Error[0]
+            return
+        }
+
+        $this.GetProcessesRunning() | Stop-Process 
+    }
+    [void]RestartStigViewer(){
+        $METHOD_NAME = "RestartStigViewer"
+        $myStigViewerStatus = $this.GetProcessStatus()
+
+        if($myStigViewerStatus -eq $false){
+            $msgError = ($this.myMessage -f $METHOD_NAME,"Stig Viewer 3 is currertly not running...")
+            Write-Error -Message $msgError; $Error[0]
+            return
+        }
+
+        $this.StopStigViewer()
+        Start-Sleep -Seconds 2
+        $this.StartStigViewer()
+    }
+}
+Class PSSTIGMANUAL{
+    $myMessage = "[{0}]:: {1}"
+    $URLTable = @{
+        MSSQL_Server_2016   = "https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_SQL_Server_2016_Y24M01_STIG.zip"
+    }
+    [string]SelectURL([hashtable]$fromSender){
+        $METHOD_NAME = "SelectURL"
+        $LinkKey = $fromSender.LinkLabel
+
+       $myURL =  $this.URLTable.$LinkKey
+        if($myURL.length -eq 0){
+            $msgError = $this.myMessage -f $METHOD_NAME,"'$LinkKey' is not mapped to a URL."
+            Write-Error -Message $msgError; 
+            return $Error[0]
+        }
+        return $myURL
+    }
+    [void]DownloadManual([hashtable]$fromSender){
+        $METHOD_NAME = "DownloadManual"
+        $LinkKey = $fromSender.LinkLabel
+        $myURL = $this.SelectURL(@{LinkLabel = $LinkKey})
+        $myOutputPath       = $fromSender.SaveToFolderPath
+        $myOutputPathExists = Test-Path -Path $myOutputPath
+
+        if($myOutputPathExists -eq $false){
+            $msgError = ($this.myMessage -f $METHOD_NAME, "'$myOutputPath' is invalid.")
+            Write-Error -Message $msgError; $Error[0]
+            return
+        }
+        $myFilePath  = "$($myOutputPath)\$($LinkKey).zip"
+        Invoke-WebRequest -Uri $myURL -OutFile $myFilePath
     }
 }

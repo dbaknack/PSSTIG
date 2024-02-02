@@ -1,4 +1,12 @@
 @{
     RootModule = "./PSSTIG.psm1"
-    ModuleVersion = '1.2.2'
+    ModuleVersion = '0.0.0'
+    FunctionsToExport = @(
+        "PSSTIGVIEWER",
+        "PSSTIG",
+        "PSSTIGManual",
+        "Get-TargetData",
+        "Invoke-UDFSQLCommand",
+        "Invoke-Finding213988"
+    )
 }
