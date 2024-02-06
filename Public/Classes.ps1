@@ -40,7 +40,6 @@ Class PSSTIG{
     $FindingInfo = @{
        
     }
-
     $SessionsTable = @{}
     $PSUTILITIES        = (PSUTILITIES)
     $PlatformParameters = (PlatformParameters)
@@ -49,10 +48,9 @@ Class PSSTIG{
     $CheckListTemplates = (Get-ChildItem -path "$((get-Location).path)$($this.Separator)Private$($this.Separator)CheckListTemplates$($this.Separator)")
     $HOSTDATA = @{
         SQLServerInstance = @(
-            [pscustomobject]@{ InstID = 1; Enclave = "DEVNET" ;HostName = "VIPTO-POWERSHELL"; NamedInstance  = $true; InstanceName = "SANDBOX01";   CheckListType = "SQLServerInstance"}
+            [pscustomobject]@{ InstID = 1; Enclave = "DEVLAB" ;HostName = "VIPTO-POSH"; NamedInstance  = $true; InstanceName = "SANDBOX01";UsingPort = "40482";   CheckListType = "SQLServerInstance"}
         )
     }
-
     [void]GetFindingInfo([hashtable]$fromSender){
         $myCheckListName    = $fromSender.CheckListName
         $myFindingID        = $fromSender.FindingID
@@ -110,7 +108,8 @@ Class PSSTIG{
         return $myDataTable
     }
     [void]CreateSessions([hashtable]$fromSender){
-        $setAllHostSession  = $fromSender.All
+        $METHOD_NAME        = "CreateSessions"
+        $setAllHostSession  = $true
         $myHostList         = $fromSender.HostList
         $filteredHosts = switch($setAllHostSession){
             $true   {
@@ -151,24 +150,38 @@ Class PSSTIG{
             "`r[{0}]-<-------[{1}]",
             "`r[{0}]<--------[{1}]"
         )
-        $localHost = hostname
-        $groupedHostList    = ($filteredHosts | Group-Object -Property HostName).Name
+        $localHost          = hostname
+        $groupedHostList    = @(($filteredHosts | Group-Object -Property HostName).Name)
         $myCreds            = $fromSender.Creds
-        $groupedHostListCount = ($groupedHostList.count)-1
-        foreach($remoteHost in 0..$groupedHostListCount){
-            $sessionState =  $this.StoreASession(@{
-                HostName    = ($groupedHostList[$remoteHost])
-                Creds       = $myCreds
-            })
-           
+
+        $counterMaxRemotHost = [int]
+        if($groupedHostList.count -eq 1){
+            $counterMaxRemotHost = 1
+        }
+
+        if($groupedHostList.count -gt 1){
+            $counterMaxRemotHost = ($groupedHostList.count)-1
+        }
+
+        
+        foreach($remoteHost in 0..$counterMaxRemotHost){
+            $creatingSession = 0
             Do{
+                $sessionState = [int]
+                if($creatingSession -eq 0){
+                    $sessionState =  $this.StoreASession(@{
+                        HostName    = ($groupedHostList[$remoteHost])
+                        Creds       = $myCreds
+                    })
+                    $creatingSession = 1
+                }
+
                 foreach($frame in $frames){
                     $displaythis = $frame -f $localHost,($groupedHostList[$remoteHost])
                     Start-Sleep -Milliseconds 30
                     write-host $displaythis -NoNewline -ForegroundColor Cyan
                 }
             }Until(($sessionState -eq 0) -or $($sessionState -eq 1))
-       
         }
     }
     [psobject]GetSession([hashtable]$fromSender){
@@ -176,17 +189,17 @@ Class PSSTIG{
         return $this.SessionsTable.$mySessionName
     }
     [psobject]StoreASession([hashtable]$fromSender){
-        $myHostName = $fromSender.HostName
+        $myHostName =   $fromSender.HostName
+        $overPort   =   $fromSender.Port
         $sessionEstablished = [bool]
-        
         try{
             $sessionEstablished = $true
-            $this.SessionsTable.Add($myHostName,(New-PSSession -ComputerName  $myHostName -Credential ($fromSender.Creds) -ErrorAction Stop))
+            $this.SessionsTable.Add($myHostName,(New-PSSession -ComputerName  $myHostName -Port $overPort -Credential ($fromSender.Creds) -ErrorAction Stop))
         }catch{
             $sessionEstablished = $false
         }
         if($sessionEstablished -eq $false){
-            return 0
+            return $Error[0]
         }
         return 1
     }
@@ -733,12 +746,6 @@ Class PSSTIG{
             }
    
             $myPropertiesFolderPath = ("{0}{1}" -f $CheckListPropertiesFolderPath,$propertiesFolder)
-            $this.PSUTILITIES.DisplayMessage(@{
-                Message     = $myPropertiesFolderPath
-                Type        = "debug"
-                Category    = "debug"
-            })
-
             if($createPropertiesFolder){
                 New-Item -itemtype Directory -Name $myPropertiesFolderPath
             }
@@ -932,6 +939,7 @@ Class PSSTIG{
         return $scriptTable
     }
 }
+
 Class PSSTIGVIEWER{
     $StigViewerProcessName = "Stig Viewer 3"
     $PathToEXE = [string]

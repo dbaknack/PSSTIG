@@ -10,35 +10,6 @@ Function PSSTIGMANUAL{
     $PSSTIGMANUAL = [PSSTIGMANUAL]::new()
     $PSSTIGMANUAL
 }
-Function Invoke-UDFSQLCommand{
-    param(
-        [hashtable]$Query_Params
-    )
-
-    $processname = 'Invoke-UDFSQLCommand'
-    $sqlconnectionstring = "
-        server                          = $($Query_Params.InstanceName);
-        database                        = $($Query_Params.DatabaseName);
-        trusted_connection              = true;
-        application name                = $processname;"
-    # sql connection, setup call
-    $sqlconnection                  = new-object system.data.sqlclient.sqlconnection
-    $sqlconnection.connectionstring = $sqlconnectionstring
-    $sqlconnection.open()
-    $sqlcommand                     = new-object system.data.sqlclient.sqlcommand
-    $sqlcommand.connection          = $sqlconnection
-    $sqlcommand.commandtext         = ($Query_Params.Query)
-    # sql connection, handle returned results
-    $sqladapter                     = new-object system.data.sqlclient.sqldataadapter
-    $sqladapter.selectcommand       = $sqlcommand
-    $dataset                        = new-object system.data.dataset
-    $sqladapter.fill($dataset) | out-null
-    $resultsreturned                = $null
-    $resultsreturned               += $dataset.tables
-    $sqlconnection.close()      # the session opens, but it will not close as expected
-    $sqlconnection.dispose()    # TO-DO: make sure the connection does close
-    $resultsreturned
-}
 Function Get-TargetData{
     param(
         [string]$CheckListName,
@@ -79,8 +50,36 @@ Function Get-TargetData{
     $myCheckListDataConverted = $myCheckListData | ConvertTo-Json -Depth 5
     Set-Content -path  $myCheckListFile.FullName -Value $myCheckListDataConverted
 }
-# finding 1
-Function Invoke-Finding213988{
+Function Invoke-UDFSQLCommand{
+    param(
+        [hashtable]$Query_Params
+    )
+
+    $processname = 'Invoke-UDFSQLCommand'
+    $sqlconnectionstring = "
+        server                          = $($Query_Params.InstanceName);
+        database                        = $($Query_Params.DatabaseName);
+        trusted_connection              = true;
+        application name                = $processname;"
+    # sql connection, setup call
+    $sqlconnection                  = new-object system.data.sqlclient.sqlconnection
+    $sqlconnection.connectionstring = $sqlconnectionstring
+    $sqlconnection.open()
+    $sqlcommand                     = new-object system.data.sqlclient.sqlcommand
+    $sqlcommand.connection          = $sqlconnection
+    $sqlcommand.commandtext         = ($Query_Params.Query)
+    # sql connection, handle returned results
+    $sqladapter                     = new-object system.data.sqlclient.sqldataadapter
+    $sqladapter.selectcommand       = $sqlcommand
+    $dataset                        = new-object system.data.dataset
+    $sqladapter.fill($dataset) | out-null
+    $resultsreturned                = $null
+    $resultsreturned               += $dataset.tables
+    $sqlconnection.close()      # the session opens, but it will not close as expected
+    $sqlconnection.dispose()    # TO-DO: make sure the connection does close
+    $resultsreturned
+}
+Function Run-Finding213988{
     param(
         [string]$Hostname,
         [string]$FindingID,
@@ -243,8 +242,8 @@ Function Invoke-Finding213988{
         })
     }
 }
-# finding 2
-Function Invoke-Finding213987{
+
+Function Run-Finding213987{
     param(
         [string]$HostName,
         [string]$FindingID,
@@ -523,14 +522,3 @@ Function Invoke-Finding213987{
         }
     }
 }
-#finding 3
-Function Invoke-Finding214042{
-    param(
-        [string]$HostName,
-        [string]$FindingID,
-        [psobject]$Session,
-        [string]$CheckListName,
-        [switch]$DisplayStatus
-    )
-}
-
