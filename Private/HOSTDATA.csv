@@ -1,0 +1,2 @@
+"RecID","Enclave","Alias","Port","IP","HostName","NamedInstance ","InstanceName","CheckType","CheckListType","CredentialRequired","CredentialAlias"
+"1","DEVLAB","DEV-SQL01","40482","192.168.125.12","DEV-SQL01","true","SANDBOX","Instance","SQLServerInstance","true","DEVCREDS"

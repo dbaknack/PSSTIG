@@ -40,16 +40,66 @@ Class PSSTIG{
     $FindingInfo = @{
        
     }
+
     $SessionsTable = @{}
     $PSUTILITIES        = (PSUTILITIES)
     $PlatformParameters = (PlatformParameters)
     $Separator          = $this.PlatformParameters.Separator
     $myMessage          = "[{0}]:: {1}"
     $CheckListTemplates = (Get-ChildItem -path "$((get-Location).path)$($this.Separator)Private$($this.Separator)CheckListTemplates$($this.Separator)")
-    $HOSTDATA = @{
-        SQLServerInstance = @(
-            [pscustomobject]@{ InstID = 1; Enclave = "DEVLAB" ;HostName = "VIPTO-POSH"; NamedInstance  = $true; InstanceName = "SANDBOX01";UsingPort = "40482";   CheckListType = "SQLServerInstance"}
-        )
+    $HOSTDATA = @()
+
+    [psobject]GetData([hashtable]$fromSender){
+        $METHOD_NAME = "GetData"
+
+        #$myDataSourcePath = ".\Private\HOSTDATA.csv"
+        $myDataSourcePath = $fromSender.DataSourcePath
+        $validSourcePath = (Test-Path -Path $myDataSourcePath)
+        if(-not($validSourcePath)){
+            $msgError = ("[{0}]:: {1}" -f $METHOD_NAME,"Invalid datasource '$myDataSourcePath'.")
+            Write-Error -Message $msgError;$Error[0]
+            return $Error[0]
+        }
+
+        $readContent = [bool]
+        $myRawData = $()
+        try{
+            $readContent = $true
+            $myRawData =  Get-Content -path $myDataSourcePath -ErrorAction "Stop"
+        }catch{
+            $readContent = $false
+        }
+
+        if(-not($readContent)){
+            $msgError = ("[{0}]:: {1}" -f $METHOD_NAME,"Cannot read content.")
+            Write-Error -Message $msgError;$Error[0]
+            return $Error[0]
+        }
+
+        $convertedContent = [bool]
+        $myConvertedData = @()
+        try{
+            $convertedContent = $true
+            $myConvertedData = ConvertFrom-Csv $myRawData -ErrorAction "Stop"
+        }catch{
+            $convertedContent = $false
+        }
+
+        if(-not($convertedContent)){
+            $msgError = ("[{0}]:: {1}" -f $METHOD_NAME,"Cannot convert content.")
+            Write-Error -Message $msgError;$Error[0]
+            return $Error[0]
+        }
+        return $myConvertedData
+    }
+    [void]AddData([hashtable]$fromSender){
+
+        [string]$myDataSourcePath =($fromSender.DataSource)
+        $myData = $this.GetData(@{
+            DataSourcePath = $myDataSourcePath
+        })
+
+        $this.HOSTDATA += $myData
     }
     [void]GetFindingInfo([hashtable]$fromSender){
         $myCheckListName    = $fromSender.CheckListName
@@ -108,8 +158,7 @@ Class PSSTIG{
         return $myDataTable
     }
     [void]CreateSessions([hashtable]$fromSender){
-        $METHOD_NAME        = "CreateSessions"
-        $setAllHostSession  = $true
+        $setAllHostSession  = $fromSender.All
         $myHostList         = $fromSender.HostList
         $filteredHosts = switch($setAllHostSession){
             $true   {
@@ -150,38 +199,24 @@ Class PSSTIG{
             "`r[{0}]-<-------[{1}]",
             "`r[{0}]<--------[{1}]"
         )
-        $localHost          = hostname
-        $groupedHostList    = @(($filteredHosts | Group-Object -Property HostName).Name)
+        $localHost = hostname
+        $groupedHostList    = ($filteredHosts | Group-Object -Property HostName).Name
         $myCreds            = $fromSender.Creds
-
-        $counterMaxRemotHost = [int]
-        if($groupedHostList.count -eq 1){
-            $counterMaxRemotHost = 1
-        }
-
-        if($groupedHostList.count -gt 1){
-            $counterMaxRemotHost = ($groupedHostList.count)-1
-        }
-
-        
-        foreach($remoteHost in 0..$counterMaxRemotHost){
-            $creatingSession = 0
+        $groupedHostListCount = ($groupedHostList.count)-1
+        foreach($remoteHost in 0..$groupedHostListCount){
+            $sessionState =  $this.StoreASession(@{
+                HostName    = ($groupedHostList[$remoteHost])
+                Creds       = $myCreds
+            })
+           
             Do{
-                $sessionState = [int]
-                if($creatingSession -eq 0){
-                    $sessionState =  $this.StoreASession(@{
-                        HostName    = ($groupedHostList[$remoteHost])
-                        Creds       = $myCreds
-                    })
-                    $creatingSession = 1
-                }
-
                 foreach($frame in $frames){
                     $displaythis = $frame -f $localHost,($groupedHostList[$remoteHost])
                     Start-Sleep -Milliseconds 30
                     write-host $displaythis -NoNewline -ForegroundColor Cyan
                 }
             }Until(($sessionState -eq 0) -or $($sessionState -eq 1))
+       
         }
     }
     [psobject]GetSession([hashtable]$fromSender){
@@ -189,17 +224,17 @@ Class PSSTIG{
         return $this.SessionsTable.$mySessionName
     }
     [psobject]StoreASession([hashtable]$fromSender){
-        $myHostName =   $fromSender.HostName
-        $overPort   =   $fromSender.Port
+        $myHostName = $fromSender.HostName
         $sessionEstablished = [bool]
+       
         try{
             $sessionEstablished = $true
-            $this.SessionsTable.Add($myHostName,(New-PSSession -ComputerName  $myHostName -Port $overPort -Credential ($fromSender.Creds) -ErrorAction Stop))
+            $this.SessionsTable.Add($myHostName,(New-PSSession -ComputerName  $myHostName -Credential ($fromSender.Creds) -ErrorAction Stop))
         }catch{
             $sessionEstablished = $false
         }
         if($sessionEstablished -eq $false){
-            return $Error[0]
+            return 0
         }
         return 1
     }
@@ -331,7 +366,6 @@ Class PSSTIG{
     }
     [psobject]GetHostData([hashtable]$fromSender){
         $METHOD_NAME = "GetHostData"
-
 
         $myHostData = $fromSender.DataSource
         $sourceHostData = $this.HOSTDATA
@@ -746,6 +780,12 @@ Class PSSTIG{
             }
    
             $myPropertiesFolderPath = ("{0}{1}" -f $CheckListPropertiesFolderPath,$propertiesFolder)
+            $this.PSUTILITIES.DisplayMessage(@{
+                Message     = $myPropertiesFolderPath
+                Type        = "debug"
+                Category    = "debug"
+            })
+
             if($createPropertiesFolder){
                 New-Item -itemtype Directory -Name $myPropertiesFolderPath
             }
@@ -900,13 +940,19 @@ Class PSSTIG{
         $this.SetFileSystemItems(@{DataSource = ($fromSender.DataSource)})
     }
     [psobject]GetSQLQuery([hashtable]$fromSender){
-        $myFindingID = $fromSender.FindingID
- 
-        $SQLScriptFolderPath = ".$($this.separator)Private$($this.separator)SQLScripts$($this.separator)"
-
+        $myFindingID            = $fromSender.FindingID
+        $modulePath             = Get-PSTIGModuleLocation
+        $SQLScriptFolderPath    = "{0}{1}{2}{3}{4}{5}" -f
+            $modulePath ,
+            $this.PlatformParameters.Separator,
+            "Private",
+            $this.PlatformParameters.Separator,
+            "SQLScripts",
+            $this.PlatformParameters.Separator
+           
         $scriptList = (Get-ChildItem -path $SQLScriptFolderPath  )
 
-        if($scriptList.BaseName -notcontains $myFindingID){
+        if(($scriptList.BaseName) -notcontains $myFindingID){
             return 0
         }
        
@@ -939,7 +985,6 @@ Class PSSTIG{
         return $scriptTable
     }
 }
-
 Class PSSTIGVIEWER{
     $StigViewerProcessName = "Stig Viewer 3"
     $PathToEXE = [string]
@@ -954,7 +999,7 @@ Class PSSTIGVIEWER{
             $StigViewRunning = $false
         }
 
-        
+       
         if($StigViewRunning){
             $myProcesses = Get-Process $this.StigViewerProcessName
         }else{
