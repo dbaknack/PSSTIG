@@ -3,6 +3,57 @@ Function PSSTIG {
     $PSSTIG =  [PSSTIG]::new()
     $PSSTIG
 }
+Function Get-SqlInstances{
+
+    Param($ServerName = [System.Net.Dns]::GetHostName())
+   
+ 
+    $LocalInstances = @()
+ 
+    [array]$Captions = Get-WmiObject win32_service -ComputerName $ServerName |
+      Where-Object {
+        $_.Name -match "mssql*" -and
+        $_.PathName -match "sqlservr.exe"
+      } |
+        ForEach-Object {$_.Caption}
+ 
+    foreach ($Caption in $Captions) {
+      if ($Caption -eq "MSSQLSERVER") {
+        $LocalInstances += "MSSQLSERVER"
+      } else {
+        $Temp = $Caption |
+          ForEach-Object {$_.split(" ")[-1]} |
+          ForEach-Object {$_.trimStart("(")} |
+            ForEach-Object {$_.trimEnd(")")}
+ 
+        $LocalInstances += "$ServerName\$Temp"
+      }
+ 
+    }
+ 
+     $instance_names_list = @()
+     $instance_ruid = 1
+    foreach($localinstance_name in $LocalInstances){
+      # if the instance name is not a named instance, this condition will be true
+      if($localinstance_name -match '(.*)\\(MSSQLSERVER)'){
+         $instance_names_list += [pscustomobject]@{
+          id = $instance_ruid
+          host_name = $ServerName
+          instance_type = 'unnamed'
+          instance_name = $matches[1]
+          }
+      }else{
+          $instance_names_list += [pscustomobject]@{
+              id = $instance_ruid
+              host_name = $ServerName
+              instance_type = 'named'
+              instance_name =  $localinstance_name
+          }
+      }
+      $instance_ruid = $instance_ruid + 1
+    }
+    $instance_names_list | Group-Object -Property host_name -AsHashTable
+}
 Function PSSTIGVIEWER{
     $PSSTIGVIEWER = [PSSTIGVIEWER]::new()
     $PSSTIGVIEWER
@@ -99,7 +150,6 @@ Function Get-PSTIGModuleLocation {
 }
 
 #-------------------------------------------------> [ audit functions ]
-# finding 1
 Function Invoke-Finding213988{
     param(
         [string]$Hostname,
@@ -280,7 +330,6 @@ Function Invoke-Finding213988{
         })
     }
 }
-# finding 2
 Function Invoke-Finding213987{
     param(
         [string]$HostName,
@@ -576,7 +625,7 @@ Function Invoke-Finding213987{
         }
     }
 }
-Function Invoke-FindingV214045{
+Function Invoke-Finding214045{
     param(
         [string]$HostName,
         [string]$FindingID,
@@ -590,7 +639,7 @@ Function Invoke-FindingV214045{
     process{
         # if a script is needed, get it
         $myScripts      = $PSSTIG.GetSQLQuery(@{
-            FindingID = $FindingID
+            FindingID = "V-214045"#$FindingID
         })
 
         # instance name is needed
@@ -731,7 +780,6 @@ Function Invoke-FindingV214045{
         }
     }
 }
-#finding 3
 Function Invoke-Finding214042{
     param(
         [string]$HostName,
@@ -1012,7 +1060,7 @@ Function Invoke-Finding214044{
     )
     begin{
         $FUNCTION_NAME          = "Invoke-Finding214044"
-        $FINDING_DESCRIPTION    = "If the SQL Server Browser Service is specifically required and approved, SQL instances must be hidden"
+        $FINDING_DESCRIPTION    = "If the SQL Server Browser Service is specifically required and approved, SQL instances must be hidden."
 
         $myScripts      = $PSSTIG.GetSQLQuery(@{
             FindingID = $FindingID
@@ -1139,3 +1187,2556 @@ Function Invoke-Finding214044{
         }
     }
 }
+Function Invoke-Finding214041{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding214041"
+        $FINDING_DESCRIPTION    = "SQL Server External Scripts Enabled feature must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214040{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+       
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Remote Data Archive feature must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214039{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Allow Polybase Export feature must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214038{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Hadoop Connectivity feature must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214037{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Remote Access feature must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214036{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "SQL Server User Options feature must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214035{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Ole Automation Procedures feature must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214034{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Filestream must be disabled, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214033{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "SQL Server execute permissions to access the registry must be revoked, unless specifically required and approved."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214032{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "SQL Server Service Broker endpoint must utilize AES encryption."
+
+        $reachedHost        = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $pwshScriptBlock = {
+            # 0 -> TLS is is enabled and not a finding
+            # 1 _> TLS is not enabled and a finding
+            $enableManualOverride           = $false
+            $value                          = 0
+            $openResult_Description        = "TLS 1.2 is not enaled."
+            $notafinding_ResultDescription  = "TLS 1.2 is enaled."
+       
+            $checkResults = [pscustomobject]@{
+                CheckResults        = [int]
+                ResultValue         = [int]
+                ResultDescription   = [string]
+            }
+           
+            if($enableManualOverride){
+                switch($value){
+                    1   {
+                        $checkResults.CheckResults = 1
+                        $checkResults.ResultValue  = 0
+                        $checkResults.ResultDescription = $openResult_Description
+                    }
+                    0   {
+                        $checkResults.CheckResults = 0
+                        $checkResults.ResultValue  = 1
+                        $checkResults.ResultDescription = $notafinding_ResultDescription
+                    }
+                }
+            }
+       
+            if($enableManualOverride -eq $false){
+                $checkCompleted = [bool]
+                try{
+                    $checkCompleted             = $true
+                    (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Client' -Name 'Enabled' -ErrorAction stop) | Out-Null
+                    $checkResults.ResultValue = 0
+                }catch{
+                    $checkCompleted  = $false
+                    $checkResults.ResultValue = 1
+                }
+           
+                $checkResults.CheckResults = switch($checkCompleted){
+                    $false  { 1 }
+                    $true   { 0 }
+                }
+           
+                if($checkResults.CheckResults -eq 1){
+                    $checkResults.ResultDescription = $openResult_Description
+                }
+                if($checkResults.CheckResults -eq 0){
+                    $checkResults.ResultDescription = $notafinding_ResultDescription
+                }
+            }
+           $checkResults
+        }
+        $invokeParams = @{
+            Session         = $Session
+            ScriptBlock     = $pwshScriptBlock
+            ErrorAction     = 'Stop'
+        }
+       
+        try{
+            $reachedHost = $true
+            $checkResults = (Invoke-Command @invokeParams) | Select-Object -Property * -ExcludeProperty ("RunSpaceID","PSComputerName")
+        }catch{
+            $reachedHost = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedHost -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on host '$HostName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.CheckResults
+                    ResultValue         = $checkResults.ResultValue
+                    ResultDescription   = $checkResults.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += ' '
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+
+   
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ' '
+                $myCommentList += $myCheckResults.ResultDescription
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += $myCheckResults.ResultDescription
+                $myCommentList += ' '
+                $myCommentList += "When TLS 1.2 is enabled, relying solely on SQL AES encryption becomes redundant because"
+                $myCommentList += "TLS 1.2 already provides robust encryption and authentication for secure communication between SQL Server instances and applications ."
+                $myCommentList += "Adding an additional layer of AES encryption would unnecessarily complicate the setup and management without significantly enhancing security."
+               
+            }
+        }
+    }
+    end{
+ 
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214031{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "SQL Server Mirroring endpoint must utilize AES encryption."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214030{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Execution of startup stored procedures must be restricted to necessary cases only."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214029{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "SQL Server default account [sa] must have its name changed."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214028{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "The SQL Server default account [sa] must be disabled."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214027{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "SQL Server must configure SQL Server Usage and Error Reporting Auditing."
+
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+       
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+            }
+            # sql command is ran
+            $invokeParams = @{
+                Session = $Session
+                ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+                ArgumentList  = $SQLCommandParams
+                ErrorAction  = 'Stop'
+            }
+   
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.Rows.CheckResults
+                    ResultValue         = $checkResults.Rows.CheckValue
+                    ResultDescription    = $checkResults.Rows.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214026{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "Customer experience improvement program (CEIP) not used in enviornment."
+
+        $reachedInstance    = [bool]
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $productScriptBlock = {
+            # 0 -> TLS is is enabled and not a finding
+            # 1 -> TLS is not enabled and a finding
+            $enableManualOverride           = $false
+            $value                          = 0
+            $openResult_Description        = "One or More instances are participating in the customer experience improvement program (CEIP)."
+            $notafinding_ResultDescription  = "No instances are participating in the customer experience improvement program (CEIP)."
+       
+            $checkResults = [pscustomobject]@{
+                CheckResults        = [int]
+                ResultValue         = @()
+                ResultDescription   = [string]
+            }
+            $instancesInstalledList = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server').InstalledInstances
+            if($enableManualOverride){
+                switch($value){
+                    1   {
+                        $checkResults.CheckResults = 1
+                        $checkResults.ResultValue  += $instancesInstalledList
+                        $checkResults.ResultDescription = $openResult_Description
+                    }
+                    0   {
+                        $checkResults.CheckResults = 0
+                        $checkResults.ResultValue  += $instancesInstalledList
+                        $checkResults.ResultDescription = $notafinding_ResultDescription
+                    }
+                }
+            }
+            if($enableManualOverride -eq $false){
+                $myHostName = HostName
+                $instanceProductConfigurationList  = @()
+                foreach($i in $instancesInstalledList) {
+                    $product = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\Instance Names\\SQL').$i
+                    $productParameters = Get-ItemProperty -Path "HKLM:\Software\Microsoft\Microsoft SQL Server\$product\CPE\"
+           
+                    $instanceName = [string]
+                    if(-not($myHostName -eq $i)){
+                        $instanceName = ("{0}\{1}" -f $myHostName,$i)
+                    }else{
+                        $instanceName = $i
+                    }
+                    $instanceProductConfigurationList  += [pscustomobject]@{
+                        HostName                = $myHostName
+                        Instancename            = $instanceName
+                        CustomerFeedback        = $productParameters.CustomerFeedback
+                        EnableErrorReporting    = $productParameters.EnableErrorReporting    
+                    }
+                }
+                foreach($instProduct in $instancesInstalledList){
+                    if(($instProduct.CustomerFeedback -or $instProduct.EnableErrorReporting) -eq 0){
+                        $checkResults.CheckResults = 1
+                        $checkResults.ResultDescription = $openResult_Description
+                    }else{
+                        checkResults.CheckResults = 0
+                        $checkResults.ResultDescription = $notafinding_ResultDescription
+                    }
+                }
+                $checkResults.ResultValue = $instanceProductConfigurationList
+            }
+            $checkResults
+        }
+        $invokeParams = @{
+            Session = $Session
+            ScriptBlock = $productScriptBlock
+            ArgumentList  = $SQLCommandParams
+            ErrorAction  = 'Stop'
+        }
+       
+        try{
+            $reachedInstance = $true
+            $checkResults = Invoke-Command @invokeParams | Select-Object -Property * -ExcludeProperty ("PSComputerName","RunspaceId")
+        }catch{
+            $reachedInstance = $false
+        }
+       
+        # if you cant reach instance
+        if($reachedInstance -eq $false){
+            $findingStatus = "open"
+             $myCommentList += $checkedBy
+                $myCommentList += $dateChecked
+                $myCommentList += ' '
+                $myCommentList += 'Remarks:'
+                $myCommentList += "Was unable to perform check on host '$HostName', validate that the host is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myCommentList -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $myCheckResults = @(
+                [pscustomobject]@{
+                    Results             = $checkResults.CheckResults
+                    ResultValue         = $checkResults.ResultValue
+                    ResultDescription    = $checkResults.ResultDescription
+                }
+            )
+       
+            $myCommentList += $checkedBy
+            $myCommentList += $dateChecked
+            $myCommentList += ' '
+            $myCommentList += 'Description:'
+            $myCommentList += $FINDING_DESCRIPTION
+            $myCommentList += " "
+            $myCommentList += 'Remarks:'
+            $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+       
+            $aggregatedComment = @()
+            foreach($entry in $checkResults.ResultValue){
+                $aggregatedComment += "On host '{0}, instance {1} has CustomerFeedback set to {2}, and Enabled ErrorReporting set to {3}'" -f
+                    $entry.HostName,
+                    $entry.Instancename,
+                    $entry.CustomerFeedback,
+                    $entry.EnableErrorReporting
+            }
+
+            if($myCheckResults.Results -eq 1){
+                $findingStatus = "open"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+                $myCommentList += $aggregatedComment
+            }
+       
+            if($myCheckResults.Results -eq 0){
+                $findingStatus = "not_a_finding"
+                $myCommentList += ("{0}`n{1} " -f $myCheckResults.ResultDescription, "")
+                $myCommentList += $aggregatedComment
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+Function Invoke-Finding214025{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [string]$CheckListName,
+        [switch]$DisplayStatus,
+        [string]$DocumentationFolderPath    = ".\Documentation"
+       
+    )
+    begin{
+        $DocumentationFileName      = ("\{0}SQLArchivedLogging.json" -f $CheckListName)
+        $FUNCTION_NAME          = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+        $FINDING_DESCRIPTION    = "The system SQL Server must off-load audit data to a separate log management facility."
+
+
+        $findingStatus      = "not_a_finding"
+        $myCommentList      = @()
+        $checkedBy          = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        $dateChecked        = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+    }
+    process{
+        $checkResults = [pscustomobject]@{
+            CheckResults        = [int]
+            ResultValue         = @()
+            ResultDescription   = [string]
+        }
+
+        $CheckListname = $InstanceLevelParam.CheckListName
+        $DefaultSettings = @{
+            IsNearRealTime = $true
+            StorageLabel = "\HostName\SomeLocation"
+            ArchiveInterval = "weekly"
+            DirectlyWritesToArchive = $false
+            HasContinousConnection = $true
+        }
+        $docExists = $PSSTIG.PSUTILITIES.GetUtilitySettingsTable(@{Label = $CheckListname })
+        if($docExists -eq 0){
+            $SQLLogsTable = @{}
+            $SQLLogsTable.Add($CheckListname,@(@{
+                IsNearRealTime          = $DefaultSettings.IsNearRealTime
+                StorageLabel            = $DefaultSettings.StorageLabel
+                DirectlyWritesToArchive = $DefaultSettings.DirectlyWritesToArchive
+                ArchiveInterval         = $DefaultSettings.ArchiveInterval
+                HasContinousConnection  = $DefaultSettings.HasContinousConnection
+            }))
+       
+            $PSSTIG.PSUTILITIES.CacheConfiguration(@{
+                Configuration = $SQLLogsTable
+                Label       = $InstanceName
+                FolderPath  = $DocumentationFolderPath
+                FileName    = $DocumentationFileName
+                Overwrite   = $false
+            })
+        }
+        $myDocumentation = $PSSTIG.PSUTILITIES.ReadCache(@{
+            Label = $InstanceName
+        })
+       
+        $HashContinousConnection = $myDocumentation.$CheckListname.HasContinousConnection
+        $DirectlyWritesToArchive = $myDocumentation.$CheckListname.DirectlyWritesToArchive
+       
+        $myCommentList += $checkedBy
+        $myCommentList += $dateChecked
+        $myCommentList += ' '
+        $myCommentList += 'Description:'
+        $myCommentList += $FINDING_DESCRIPTION
+        $myCommentList += " "
+        $myCommentList += 'Remarks:'
+        $myCommentList += "Check was performed by powershell function {0}" -f $FUNCTION_NAME
+
+        if(($HashContinousConnection -eq $true )-and ($DirectlyWritesToArchive -eq $false)){
+            $checkResults.CheckResults = 1
+            $myCommentList += "There is a continouse connection, but the logs are not written directly to the archive location."
+        }else{
+            $checkResults.CheckResults = 0
+            $myCommentList += "There is a continouse connection, and the logs are  written directly to the archive location."
+        }
+       
+     
+        $ArchiveInterval = $myDocumentation.$CheckListname.ArchiveInterval
+        if(($HashContinousConnection -eq $false )-and ($ArchiveInterval -notmatch "weekly")){
+            $checkResults.CheckResults = 1
+            $myCommentList += "There is a intermittent connection, but the logs are not written weekly."
+        }else{
+            $checkResults.CheckResults = 0
+            $myCommentList += "There is a intermittent connection, and the logs are written weekly."
+        }
+
+
+        if($checkResults.CheckResults -eq 1){
+            $findingStatus = "open"
+            $myCommentList += ("{0}`n{1} " -f $FINDING_DESCRIPTION, "")
+            $myCommentList += $aggregatedComment
+        }
+   
+        if($checkResults.CheckResults -eq 0){
+            $findingStatus = "not_a_finding"
+            $myCommentList += ("{0}`n{1} " -f $FINDING_DESCRIPTION, "")
+            $myCommentList += $aggregatedComment
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myCommentList -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        $updatedTargetData = [bool]
+        try{
+            $updatedTargetData = $true
+            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+        }catch{
+            $updatedTargetData = $false
+        }
+       
+        if($updatedTargetData -eq $false){
+            $PSSTIG.PSUTILITIES.DisplayMessage(@{
+                Message = ($PSSTIG.myMessage -f $FUNCTION_NAME, "Unable to update targetdata checklist '$($CheckListName).'")
+                Category = "feedback"
+                Type = "warning"
+            })
+        }
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+# $PSSTIG.U
+
+
+# $invokeParams = @{
+#     Session         = Get-PSSession -id '1'
+#     ScriptBlock     = $productScriptBlock
+#     ErrorAction     = 'Stop'
+# }
+# $checkResults = Invoke-Command @invokeParams | Select-Object -Property * -ExcludeProperty ("PSComputerName","RunspaceId")
+
+
+
+
+
+
+
+
+
+# $FindingID = "V-214027"
+# $myScripts      = $PSSTIG.GetSQLQuery(@{
+#     FindingID = $FindingID
+# })
+# $SQLCommandParams = @{
+#     DatabaseName    = "master"
+#     InstanceName    = $instanceName
+#     Query           = ("{0}" -f ($myScripts[$FindingID] -join "`n"))
+#     }
+#     # sql command is ran
+# $invokeParams = @{
+#     Session = $Session
+#     ScriptBlock = ${Function:Invoke-UDFSQLCommand}
+#     ArgumentList  = $SQLCommandParams
+#     ErrorAction  = 'Stop'
+# }
+
+# Invoke-Command @invokeParams
+
+
+
+# $productScriptBlock = {
+#     # 0 -> TLS is is enabled and not a finding
+#     # 1 -> TLS is not enabled and a finding
+#     $enableManualOverride           = $false
+#     $value                          = 0
+#     $openResult_Description        = "One or More instances are participating in the customer experience improvement program (CEIP)."
+#     $notafinding_ResultDescription  = "No instances are participating in the customer experience improvement program (CEIP)."
+
+#     $checkResults = [pscustomobject]@{
+#         CheckResults        = [int]
+#         ResultValue         = @()
+#         ResultDescription   = [string]
+#     }
+#     $instancesInstalledList = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server').InstalledInstances
+#     if($enableManualOverride){
+#         switch($value){
+#             1   {
+#                 $checkResults.CheckResults = 1
+#                 $checkResults.ResultValue  += $instancesInstalledList
+#                 $checkResults.ResultDescription = $openResult_Description
+#             }
+#             0   {
+#                 $checkResults.CheckResults = 0
+#                 $checkResults.ResultValue  += $instancesInstalledList
+#                 $checkResults.ResultDescription = $notafinding_ResultDescription
+#             }
+#         }
+#     }
+#     if($enableManualOverride -eq $false){
+#         $myHostName = HostName
+#         $instanceProductConfigurationList  = @()
+#         foreach($i in $instancesInstalledList) {
+#             $product = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\Instance Names\\SQL').$i
+#             $productParameters = Get-ItemProperty -Path "HKLM:\Software\Microsoft\Microsoft SQL Server\$product\CPE\"
+   
+#             $instanceName = [string]
+#             if(-not($myHostName -eq $i)){
+#                 $instanceName = ("{0}\{1}" -f $myHostName,$i)
+#             }else{
+#                 $instanceName = $i
+#             }
+#             $instanceProductConfigurationList  += [pscustomobject]@{
+#                 HostName                = $myHostName
+#                 Instancename            = $instanceName
+#                 CustomerFeedback        = $productParameters.CustomerFeedback
+#                 EnableErrorReporting    = $productParameters.EnableErrorReporting    
+#             }
+#         }
+#         foreach($instProduct in $instancesInstalledList){
+#             if(($instProduct.CustomerFeedback -or $instProduct.EnableErrorReporting) -eq 0){
+#                 $checkResults.CheckResults = 1
+#                 $checkResults.ResultDescription = $openResult_Description
+#             }else{
+#                 checkResults.CheckResults = 0
+#                 $checkResults.ResultDescription = $notafinding_ResultDescription
+#             }
+#         }
+#         $checkResults.ResultValue = $instanceProductConfigurationList
+#     }
+#     $checkResults
+# }
+# $invokeParams = @{
+#     Session         = Get-PSSession -id '1'
+#     ScriptBlock     = $productScriptBlock
+#     ErrorAction     = 'Stop'
+# }
+# $checkResults = Invoke-Command @invokeParams | Select-Object -Property * -ExcludeProperty ("PSComputerName","RunspaceId")
+# $checkResults.CheckResults
+# $checkResults.ResultDescription
