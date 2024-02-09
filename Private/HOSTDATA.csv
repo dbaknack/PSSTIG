@@ -1,2 +1,2 @@
-"RecID","Enclave","Alias","Port","IP","HostName","NamedInstance ","InstanceName","CheckType","CheckListType","CredentialRequired","CredentialAlias"
-"1","DEVLAB","DEV-SQL01","40482","192.168.125.12","DEV-SQL01","true","SANDBOX","Instance","SQLServerInstance","true","DEVCREDS"
+"RecID","Enclave","Alias","Port","IP","FQDN","HostName","NamedInstance","InstanceName","CheckType","CheckListType","CredentialRequired","CredentialAlias","Enable"
+"1","DEVLAB","DEV-SQL01","40482","192.168.125.12","VIPTO-POWERSHELL","DEV-SQL01","True","SANDBOX01","Instance","SQLServerInstance","True","DEVLABCreds","True"

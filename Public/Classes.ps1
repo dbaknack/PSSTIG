@@ -1077,6 +1077,7 @@ Class PSSTIGVIEWER{
     }
 }
 Class PSSTIGMANUAL{
+
     $myMessage = "[{0}]:: {1}"
     $URLTable = @{
         MSSQL_Server_2016   = "https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_SQL_Server_2016_Y24M01_STIG.zip"
@@ -1107,5 +1108,55 @@ Class PSSTIGMANUAL{
         }
         $myFilePath  = "$($myOutputPath)\$($LinkKey).zip"
         Invoke-WebRequest -Uri $myURL -OutFile $myFilePath
+    }
+}
+Class PSCONNECT{
+    $SourcePath     = [string]
+    $HostDataTable  = @()
+
+    # Constructor
+    PSCONNECT([hashtable]$fromSender){
+        $myFilaPath = $fromSender.FilePath
+        $myData     = Get-Content  -path $myFilaPath
+        $this.HostDataTable = ( $myData | ConvertFrom-Csv)
+        $this.SourcePath    = $myFilaPath
+    }
+
+    [void]ReloadHostData(){
+        $myFilaPath = $this.SourcePath
+        $myData     = Get-Content  -path $myFilaPath
+        
+        $this.HostDataTable = ($myData | ConvertFrom-Csv)
+    }
+    [void]AddHostData([pscustomobject]$fromSender){
+
+        $FilePath       =  $this.SourcePath
+        $myContent      = Get-Content -path  $FilePath| ConvertFrom-Csv -Delimiter ","
+        $headingString  = [string]
+        $headingsList   = @("RecID","Enclave","Alias","Port","IP","HostName","NamedInstance ","InstanceName","CheckType","CheckListType","CredentialRequired","CredentialAlias","Enable")
+        $headingString  ='"{0}"' -f ($headingString = $headingsList -join '","')
+
+      
+        if(0 -eq  (($myContent) | Measure-Object).count){ Add-Content -Path $FilePath -Value $headingString }
+        
+        if(0 -eq  (($myContent) | Measure-Object).count){[int]$recordID = 1}
+        else{
+            [int]$myLastRecId = ($myContent.RecID)[-1]
+            [int]$recordID = $myLastRecId +1}
+        
+
+        $myEntriesList  = @()
+        foreach($entry in $fromSender){
+            $valuesArray = @($recordID)
+            $valuesArray += $entry | Get-Member -MemberType Properties | ForEach-Object {
+                $entry.$($_.Name)
+            }
+            $entryString    =  '"{0}"'-f ($valuesArray -join '","')
+            $myEntriesList += $entryString
+            $recordID       = ($recordID) + 1
+        }
+
+        Add-Content -Path $FilePath -value $myEntriesList
+        $this.ReloadHostData()
     }
 }

@@ -119,3 +119,29 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     }
     Invoke-Finding214044 @FunctionParams
 }
+
+
+
+$PSCONNECT = [PSCONNECT]::new(@{
+    FilePath = ".\Private\HOSTDATA.csv"
+})
+
+$myHostData = Get-Content -path ".\Private\HOSTDATA.csv" | ConvertFrom-Csv
+
+$useAlias = $true
+if($useAlias){
+    $sessionParams = @{
+        Name            = $myHostData.Alias
+        ComputerName    = $myHostData.FQDN
+        Port            = $myHostData.Port
+        Credential      = $myCreds
+        ErrorAction     = "Stop"
+    }
+}
+
+New-PSSession @sessionParams
+
+$SQLInstances = 
+'sql2','sql4' | Get-DbaInstanceProperty
+$results = Invoke-Command -Session (Get-PSSession -Name "DEV-SQL01") -ScriptBlock ${Function:Get-DbaInstanceProperty}
+$results['DEV-SQL01']
