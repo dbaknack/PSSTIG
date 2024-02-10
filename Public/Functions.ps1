@@ -135,7 +135,7 @@ Function Get-TargetData{
     Set-Content -path  $myCheckListFile.FullName -Value $myCheckListDataConverted
 }
 
-Function Get-PSTIGModuleLocation {
+Function Get-PSTIGModuleLocation{
     $myFunctionsPath = $PSCommandPath
     #TODO: on mac you wont be able to split on that separator
     $mySeparator = '\'
@@ -3493,7 +3493,7 @@ Function Invoke-Finding214025{
         [string]$FindingID,
         [string]$CheckListName,
         [switch]$DisplayStatus,
-        [string]$DocumentationFolderPath    = ".\Documentation"
+        [string]$DocumentationFolderPath
        
     )
     begin{
@@ -3514,7 +3514,6 @@ Function Invoke-Finding214025{
             ResultDescription   = [string]
         }
 
-        $CheckListname = $InstanceLevelParam.CheckListName
         $DefaultSettings = @{
             IsNearRealTime = $true
             StorageLabel = "\HostName\SomeLocation"
@@ -3532,17 +3531,16 @@ Function Invoke-Finding214025{
                 ArchiveInterval         = $DefaultSettings.ArchiveInterval
                 HasContinousConnection  = $DefaultSettings.HasContinousConnection
             }))
-       
             $PSSTIG.PSUTILITIES.CacheConfiguration(@{
                 Configuration = $SQLLogsTable
-                Label       = $InstanceName
+                Label       = $CheckListname
                 FolderPath  = $DocumentationFolderPath
                 FileName    = $DocumentationFileName
                 Overwrite   = $false
             })
         }
         $myDocumentation = $PSSTIG.PSUTILITIES.ReadCache(@{
-            Label = $InstanceName
+            Label = $CheckListname
         })
        
         $HashContinousConnection = $myDocumentation.$CheckListname.HasContinousConnection
@@ -3603,7 +3601,7 @@ Function Invoke-Finding214025{
         $updatedTargetData = [bool]
         try{
             $updatedTargetData = $true
-            Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
+            #Get-TargetData -CheckListName $CheckListName -Session $Session -ErrorAction Stop
         }catch{
             $updatedTargetData = $false
         }
@@ -3623,9 +3621,166 @@ Function Invoke-Finding214025{
         }
     }
 }
+Function Invoke-Finding214024{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
+
+        # when this switch is true, the function will work in a remote scope, false to work in local scope
+        $REMOTE_FUNCTION    = $true
+        if($REMOTE_FUNCTION){ $establishedSession = [bool] }
+        else{ $establishedSession = $null }
+
+        $ArgumentList = @{
+            #region  - user set values
+            OpenResultDescription           = "SQL Server is not implementing NIST FIPS 140-2 or 140-3 validated cryptographic modules"
+            NotafindingResultDescription    = "SQL Server is implementing NIST FIPS 140-2 or 140-3 validated cryptographic modules"
+            EnableManualOverride            = $enableManualOverride
+            Value                           = $value
+           
+            #endregion - user set values
+            MyCommentList                   = @()
+            FindingStatus                   = [string]
+            FUNCTION_NAME                   = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+            FINDING_DESCRIPTION             = "Customer experience improvement program (CEIP) not used in enviornment."
+        }
+        # checkedBy                       = "{0} {1}" -f "Check performed by:",$env:USERNAME
+        # dateChecked                     = "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+
+        # this check itself with all its properties as defined in the argumentlist hashtable
+        $ScriptBlock = {
+            param($argumentList)
+
+            $Check = [pscustomobject]@{
+                Result        = [int]
+                Value         = $null
+                Description   = [string]
+            }
+
+            # when enabled, results are manually set on the checklist file
+            if($argumentList.enableManualOverride){
+                switch($value){
+                    # in this block you can simulate the check is an open finding
+                    1   {
+                        $Check.Result      = 1
+                        $Check.Value       = "[Manually set finding result to open]"
+                        $Check.Description = $argumentList.OpenResultDescription
+                    }
+
+                    # in this block you can simuate the check is not a finding
+                    0   {
+                        $Check.Result      = 0
+                        $Check.Value       = "[Manually set finding result to not_a_finding]"
+                        $Check.Description = $argumentList.NotafindingResultDescription
+                    }
+                }
+            }
+            # when disabled, results are set from the check done
+            if($argumentList.enableManualOverride -eq $false){
+                $findingData = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FIPSAlgorithmPolicy"
+                $Check.Value = $findingData.Enabled
+                # when returned true, its not a finding
+                if($findingData.Enabled -eq 1){
+                    $Check.Result      = 0
+                    $Check.Description = $argumentList.NotafindingResultDescription
+                }
+                else{
+                    $Check.Result      = 1
+                    $Check.Description = $argumentList.OpenResultDescription
+                }
+            }
+
+            $argumentList.MyCommentList += "{0} {1}" -f "Check performed by:",$env:USERNAME
+            $argumentList.MyCommentList += "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+            $argumentList.MyCommentList += " "
+            $argumentList.MyCommentList += "Description: "
+            $argumentList.MyCommentList += $Check.Description
 
 
+            return @{
+                Data     = $Check
+                Comments = $argumentList.MyCommentList
+            }
+        }
+    }
+    process{
+        # when running remotly, session is included in the invocation
+        if($REMOTE_FUNCTION){
+            $invokeParams = @{
+                Session         = $Session
+                ScriptBlock     = $ScriptBlock
+                ArgumentList    = $argumentList
+                ErrorAction     = 'Stop'
+            }
+        }else{
+            $invokeParams = @{
+                ScriptBlock     = $ScriptBlock
+                ArgumentList    = $ArgumentList
+                ErrorAction     = 'Stop'
+            }
+        }
 
+        # it either will succeed or fail
+        try{
+            $establishedSession = $true
+            $Finding = Invoke-Command @invokeParams
+        }catch{
+            $establishedSession = $false
+        }
+       
+        $myResult   = $Finding.Data
+        $myComments = $Finding.Comments
+       
+        # if you cant reach instance
+        if($establishedSession -eq $false){
+            $findingStatus = "open"
+            $myComments  += ' '
+            $myComments  += 'Remarks:'
+            $myComments  += "Was unable to perform check on host '$HostName', validate that the host is running and is accessible."
+        }else{
+            $myComments    += ' '
+            $myComments += 'Remarks:'
+            $myComments += "Check was performed by powershell function {0}" -f $ArgumentList.FUNCTION_NAME
+       
+            if($myResult.Result -eq 1){
+                $findingStatus = "open"
+                $myComments += ("{0}`n{1} " -f $myResult.Description,"")
+            }
+       
+            if($myResult.Result -eq 0){
+                $findingStatus = "not_a_finding"
+                $myComments += ("{0}`n{1} " -f $myResult.Description,"")
+            }
+        }
+    }
+    end{
+        # here we update the checklist itself
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myComments -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+
+        # here we display as needed
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
 
 
 
@@ -3665,77 +3820,3 @@ Function Invoke-Finding214025{
 #     ArgumentList  = $SQLCommandParams
 #     ErrorAction  = 'Stop'
 # }
-
-# Invoke-Command @invokeParams
-
-
-
-# $productScriptBlock = {
-#     # 0 -> TLS is is enabled and not a finding
-#     # 1 -> TLS is not enabled and a finding
-#     $enableManualOverride           = $false
-#     $value                          = 0
-#     $openResult_Description        = "One or More instances are participating in the customer experience improvement program (CEIP)."
-#     $notafinding_ResultDescription  = "No instances are participating in the customer experience improvement program (CEIP)."
-
-#     $checkResults = [pscustomobject]@{
-#         CheckResults        = [int]
-#         ResultValue         = @()
-#         ResultDescription   = [string]
-#     }
-#     $instancesInstalledList = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server').InstalledInstances
-#     if($enableManualOverride){
-#         switch($value){
-#             1   {
-#                 $checkResults.CheckResults = 1
-#                 $checkResults.ResultValue  += $instancesInstalledList
-#                 $checkResults.ResultDescription = $openResult_Description
-#             }
-#             0   {
-#                 $checkResults.CheckResults = 0
-#                 $checkResults.ResultValue  += $instancesInstalledList
-#                 $checkResults.ResultDescription = $notafinding_ResultDescription
-#             }
-#         }
-#     }
-#     if($enableManualOverride -eq $false){
-#         $myHostName = HostName
-#         $instanceProductConfigurationList  = @()
-#         foreach($i in $instancesInstalledList) {
-#             $product = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\Instance Names\\SQL').$i
-#             $productParameters = Get-ItemProperty -Path "HKLM:\Software\Microsoft\Microsoft SQL Server\$product\CPE\"
-   
-#             $instanceName = [string]
-#             if(-not($myHostName -eq $i)){
-#                 $instanceName = ("{0}\{1}" -f $myHostName,$i)
-#             }else{
-#                 $instanceName = $i
-#             }
-#             $instanceProductConfigurationList  += [pscustomobject]@{
-#                 HostName                = $myHostName
-#                 Instancename            = $instanceName
-#                 CustomerFeedback        = $productParameters.CustomerFeedback
-#                 EnableErrorReporting    = $productParameters.EnableErrorReporting    
-#             }
-#         }
-#         foreach($instProduct in $instancesInstalledList){
-#             if(($instProduct.CustomerFeedback -or $instProduct.EnableErrorReporting) -eq 0){
-#                 $checkResults.CheckResults = 1
-#                 $checkResults.ResultDescription = $openResult_Description
-#             }else{
-#                 checkResults.CheckResults = 0
-#                 $checkResults.ResultDescription = $notafinding_ResultDescription
-#             }
-#         }
-#         $checkResults.ResultValue = $instanceProductConfigurationList
-#     }
-#     $checkResults
-# }
-# $invokeParams = @{
-#     Session         = Get-PSSession -id '1'
-#     ScriptBlock     = $productScriptBlock
-#     ErrorAction     = 'Stop'
-# }
-# $checkResults = Invoke-Command @invokeParams | Select-Object -Property * -ExcludeProperty ("PSComputerName","RunspaceId")
-# $checkResults.CheckResults
-# $checkResults.ResultDescription

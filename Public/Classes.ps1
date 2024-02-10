@@ -46,8 +46,10 @@ Class PSSTIG{
     $PlatformParameters = (PlatformParameters)
     $Separator          = $this.PlatformParameters.Separator
     $myMessage          = "[{0}]:: {1}"
-    $CheckListTemplates = (Get-ChildItem -path "$((get-Location).path)$($this.Separator)Private$($this.Separator)CheckListTemplates$($this.Separator)")
-    $HOSTDATA = @()
+    $CheckListTemplates = (Get-ChildItem -path ".$($this.Separator)PSSTIG$($this.Separator)Private$($this.Separator)CheckListTemplates$($this.Separator)")
+    $HOSTDATA = @(
+        $SQLServerInstance = $PSCONNECT.HostDataTable
+    )
 
     [psobject]GetData([hashtable]$fromSender){
         $METHOD_NAME = "GetData"
