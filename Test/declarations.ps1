@@ -1,8 +1,8 @@
 $ErrorActionPreference = 'STOP'
+cd ..
 Import-Module .\PSUTILITIES
-Import-Module .\PSCONNECT   ; $PSCONNECT = PSCONNECT
-Import-Module .\PSSTIG      ; $PSSTIG    = PSSTIG
-
+Import-Module .\PSCONNECT
+Import-Module .\PSSTIG
 
 <#
     Remove-Module PSSTIG
@@ -10,12 +10,14 @@ Import-Module .\PSSTIG      ; $PSSTIG    = PSSTIG
     Remove-Module PSCONNECT
 #>
 
-$PSSTIG.Configuration.Folders.Reports.Path
+
 # runs the set up when first using tool
+$PSSTIG = (PSSTIG)
 $PSSTIG.Initalize(@{
-    ParentFolderPath    = './PSSTIG/Data'
+    ParentFolderPath    = '.\PSSTIG\Data'
     DataSource          = 'SQLServerInstance'
 })
+
 
 # runs the set up when first using tool
 $PSSTIGVIEWER = (PSSTIGVIEWER)
@@ -27,20 +29,26 @@ $PSSTIGVIEWER.StopStigViewer()
 $PSSTIGVIEWER.RestartStigViewer()
 
 # 2.0 -   define credentials to be used
+$PSCONNECT = (PSCONNECT)
+
+$PSCONNECT.GetHostData(@{All = $true})
+$PSCONNECT.GetHostData(@{All = $false})
 
 $PSCONNECT.StashCredentials(@{
     CredentialAlias = "DEV-ADM"
     Credentials     = Get-Credential
 })
 
-$PSCONNECT.GetStachedCredntials(@{
-    CredentialAlias = "NIPER-RES"
+ping VIPTO-POSH
+$PSCONNECT | Get-Member
+$PSCONNECT.GetStachedCredentials(@{
+    CredentialAlias = "DEV-ADM"
 })
-$PSCONNECT.GetHostData(@{All = $false})
+
 
 # 3.0 -   create sessions to remote hosts
 $PSCONNECT.CreateRemoteSession(@{
-    Use = "HostName"
+    Use = "Alias"
 })
 
 # 4.0 -   define levels
@@ -340,19 +348,9 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     $FunctionParams = @{
         HostName                    = $InstanceLevelParam.HostName
         FindingID                   = $findingID
-        Session                     = (Get-PSSession -Name $HostName)
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
         CheckListName               = $InstanceLevelParam.CheckListName
         DisplayStatus               = $true
     }
     Invoke-Finding214024 @FunctionParams
 }
-
-$findingID = 'V-214024'
-$FunctionParams = @{
-    HostName                    = $InstanceLevelParam.HostName
-    FindingID                   = $findingID
-    Session                     = (Get-PSSession -Name $HostName)
-    CheckListName               = $InstanceLevelParam.CheckListName
-    DisplayStatus               = $true
-}
-Invoke-Finding214024 @FunctionParams

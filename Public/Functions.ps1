@@ -1,4 +1,11 @@
 #-------------------------------------------------> [ module utilities ]
+Function Get-MyModulePath {
+    $PSScriptRoot_String = $PSScriptRoot
+    $PathStringLength = ($PSScriptRoot_String).Length
+    # this removed the reference to the private folder
+    $ModulePath  = $PSScriptRoot_String.Substring(0,($PathStringLength -7))
+    $ModulePath
+}
 Function PSSTIG {
     $PSSTIG =  [PSSTIG]::new()
     $PSSTIG
@@ -3624,7 +3631,7 @@ Function Invoke-Finding214025{
 Function Invoke-Finding214024{
     param(
         [string]$HostName,
-        [string]$FindingID,
+        [string]$FindingID = "V-214024",
         [psobject]$Session,
         [string]$CheckListName,
         [switch]$DisplayStatus
@@ -3633,15 +3640,15 @@ Function Invoke-Finding214024{
 
         # when this switch is true, the function will work in a remote scope, false to work in local scope
         $REMOTE_FUNCTION    = $true
-        if($REMOTE_FUNCTION){ $establishedSession = [bool] }
-        else{ $establishedSession = $null }
+        if($REMOTE_FUNCTION){ $establishedSession = [bool]
+        }else{ $establishedSession = $null }
 
         $ArgumentList = @{
             #region  - user set values
             OpenResultDescription           = "SQL Server is not implementing NIST FIPS 140-2 or 140-3 validated cryptographic modules"
             NotafindingResultDescription    = "SQL Server is implementing NIST FIPS 140-2 or 140-3 validated cryptographic modules"
-            EnableManualOverride            = $enableManualOverride
-            Value                           = $value
+            EnableManualOverride            = $false
+            Value                           = 0
            
             #endregion - user set values
             MyCommentList                   = @()
@@ -3763,7 +3770,7 @@ Function Invoke-Finding214024{
         $PSSTIG.UpdateComment(@{
             CheckListName   = $CheckListName
             FindingID       = $FindingID
-            Comment         = ($myComments -join "`n")
+            Comment         = ("{0}" -f ($myComments -join "`n"))
         })
        
         $PSSTIG.UpdateStatus(@{

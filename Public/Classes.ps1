@@ -46,63 +46,14 @@ Class PSSTIG{
     $PlatformParameters = (PlatformParameters)
     $Separator          = $this.PlatformParameters.Separator
     $myMessage          = "[{0}]:: {1}"
-    $CheckListTemplates = (Get-ChildItem -path ".$($this.Separator)PSSTIG$($this.Separator)Private$($this.Separator)CheckListTemplates$($this.Separator)")
-    $HOSTDATA = @(
-        $SQLServerInstance = $PSCONNECT.HostDataTable
-    )
-
-    [psobject]GetData([hashtable]$fromSender){
-        $METHOD_NAME = "GetData"
-
-        #$myDataSourcePath = ".\Private\HOSTDATA.csv"
-        $myDataSourcePath = $fromSender.DataSourcePath
-        $validSourcePath = (Test-Path -Path $myDataSourcePath)
-        if(-not($validSourcePath)){
-            $msgError = ("[{0}]:: {1}" -f $METHOD_NAME,"Invalid datasource '$myDataSourcePath'.")
-            Write-Error -Message $msgError;$Error[0]
-            return $Error[0]
-        }
-
-        $readContent = [bool]
-        $myRawData = $()
-        try{
-            $readContent = $true
-            $myRawData =  Get-Content -path $myDataSourcePath -ErrorAction "Stop"
-        }catch{
-            $readContent = $false
-        }
-
-        if(-not($readContent)){
-            $msgError = ("[{0}]:: {1}" -f $METHOD_NAME,"Cannot read content.")
-            Write-Error -Message $msgError;$Error[0]
-            return $Error[0]
-        }
-
-        $convertedContent = [bool]
-        $myConvertedData = @()
-        try{
-            $convertedContent = $true
-            $myConvertedData = ConvertFrom-Csv $myRawData -ErrorAction "Stop"
-        }catch{
-            $convertedContent = $false
-        }
-
-        if(-not($convertedContent)){
-            $msgError = ("[{0}]:: {1}" -f $METHOD_NAME,"Cannot convert content.")
-            Write-Error -Message $msgError;$Error[0]
-            return $Error[0]
-        }
-        return $myConvertedData
+    $CheckListTemplates = (Get-ChildItem -path "$(Get-MyModulePath)$($this.Separator)Private$($this.Separator)CheckListTemplates$($this.Separator)")
+    $HOSTDATA = @{
+        SQLServerInstance = @(
+            [pscustomobject]@{ InstID = 1; Enclave = "DEVLAB" ;HostName = "DEV-SQL01"; NamedInstance  = $true; InstanceName = "SANDBOX01";   CheckListType = "SQLServerInstance"}
+            [pscustomobject]@{ InstID = 2; Enclave = "DEVLAB" ;HostName = "DEV-SPLT01"; NamedInstance  = $true; InstanceName = "SPOTLIGHT";   CheckListType = "SQLServerInstance"}
+        )
     }
-    [void]AddData([hashtable]$fromSender){
 
-        [string]$myDataSourcePath =($fromSender.DataSource)
-        $myData = $this.GetData(@{
-            DataSourcePath = $myDataSourcePath
-        })
-
-        $this.HOSTDATA += $myData
-    }
     [void]GetFindingInfo([hashtable]$fromSender){
         $myCheckListName    = $fromSender.CheckListName
         $myFindingID        = $fromSender.FindingID
@@ -369,6 +320,7 @@ Class PSSTIG{
     [psobject]GetHostData([hashtable]$fromSender){
         $METHOD_NAME = "GetHostData"
 
+
         $myHostData = $fromSender.DataSource
         $sourceHostData = $this.HOSTDATA
         [array]$hostDataList = $sourceHostData.Keys
@@ -498,7 +450,6 @@ Class PSSTIG{
         $this.PSUTILITIES.CreateItem(@{
             ItemType        = "File"
             Path            = $myCommentsFilePath
-            WithFeedback    = $false
         })
     }
     [void]CreateCheckList([hashtable]$fromSender){
@@ -576,7 +527,6 @@ Class PSSTIG{
                 $this.PSUTILITIES.CreateItem(@{
                     ItemType        = "Directory"
                     Path            = $myFolders.Parent.Path
-                    WithFeedback    = $false
                 })
                 $msgState = ($this.myMessage -f $METHOD_NAME,"Successfully created '$($myFolders.Parent.Path)'.")
             }catch{
@@ -617,7 +567,6 @@ Class PSSTIG{
                 $this.PSUTILITIES.CreateItem(@{
                     ItemType        = "Directory"
                     Path            = $SourceFolderPath
-                    WithFeedback    = $false
                 })
                 $msgState = ($this.myMessage -f $METHOD_NAME,"Successfully created '$($SourceFolderPath)'.")
             }catch{
@@ -657,7 +606,6 @@ Class PSSTIG{
                 $this.PSUTILITIES.CreateItem(@{
                     ItemType        = "Directory"
                     Path            = $checkListFoldePath
-                    WithFeedback    = $false
                 })
                 $msgState = ($this.myMessage -f $METHOD_NAME,"Successfully created '$($checkListFoldePath )'.")
             }catch{
@@ -696,7 +644,6 @@ Class PSSTIG{
                 $this.PSUTILITIES.CreateItem(@{
                     ItemType        = "Directory"
                     Path            = $reportFolderPath
-                    WithFeedback    = $false
                 })
                 $msgState = ($this.myMessage -f $METHOD_NAME,"Successfully created '$($reportFolderPath )'.")
             }catch{
@@ -736,7 +683,6 @@ Class PSSTIG{
                 $this.PSUTILITIES.CreateItem(@{
                     ItemType        = "Directory"
                     Path            = $CheckListPropertiesFolderPath
-                    WithFeedback    = $false
                 })
                 $msgState = ($this.myMessage -f $METHOD_NAME,"Successfully created '$($CheckListPropertiesFolderPath)'.")
             }catch{
@@ -825,7 +771,6 @@ Class PSSTIG{
                     $this.PSUTILITIES.CreateItem(@{
                         ItemType        = "File"
                         Path            = $myCheckListParametersFile
-                        WithFeedback    = $false
                     })
 
                 }catch{
@@ -866,7 +811,6 @@ Class PSSTIG{
                     $this.PSUTILITIES.CreateItem(@{
                         ItemType        = "File"
                         Path            = $myFilePath
-                        WithFeedback    = $false
                     })
                 }catch{
                     $itemCreated = $false
@@ -1079,7 +1023,6 @@ Class PSSTIGVIEWER{
     }
 }
 Class PSSTIGMANUAL{
-
     $myMessage = "[{0}]:: {1}"
     $URLTable = @{
         MSSQL_Server_2016   = "https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_SQL_Server_2016_Y24M01_STIG.zip"
@@ -1110,55 +1053,5 @@ Class PSSTIGMANUAL{
         }
         $myFilePath  = "$($myOutputPath)\$($LinkKey).zip"
         Invoke-WebRequest -Uri $myURL -OutFile $myFilePath
-    }
-}
-Class PSCONNECT{
-    $SourcePath     = [string]
-    $HostDataTable  = @()
-
-    # Constructor
-    PSCONNECT([hashtable]$fromSender){
-        $myFilaPath = $fromSender.FilePath
-        $myData     = Get-Content  -path $myFilaPath
-        $this.HostDataTable = ( $myData | ConvertFrom-Csv)
-        $this.SourcePath    = $myFilaPath
-    }
-
-    [void]ReloadHostData(){
-        $myFilaPath = $this.SourcePath
-        $myData     = Get-Content  -path $myFilaPath
-        
-        $this.HostDataTable = ($myData | ConvertFrom-Csv)
-    }
-    [void]AddHostData([pscustomobject]$fromSender){
-
-        $FilePath       =  $this.SourcePath
-        $myContent      = Get-Content -path  $FilePath| ConvertFrom-Csv -Delimiter ","
-        $headingString  = [string]
-        $headingsList   = @("RecID","Enclave","Alias","Port","IP","HostName","NamedInstance ","InstanceName","CheckType","CheckListType","CredentialRequired","CredentialAlias","Enable")
-        $headingString  ='"{0}"' -f ($headingString = $headingsList -join '","')
-
-      
-        if(0 -eq  (($myContent) | Measure-Object).count){ Add-Content -Path $FilePath -Value $headingString }
-        
-        if(0 -eq  (($myContent) | Measure-Object).count){[int]$recordID = 1}
-        else{
-            [int]$myLastRecId = ($myContent.RecID)[-1]
-            [int]$recordID = $myLastRecId +1}
-        
-
-        $myEntriesList  = @()
-        foreach($entry in $fromSender){
-            $valuesArray = @($recordID)
-            $valuesArray += $entry | Get-Member -MemberType Properties | ForEach-Object {
-                $entry.$($_.Name)
-            }
-            $entryString    =  '"{0}"'-f ($valuesArray -join '","')
-            $myEntriesList += $entryString
-            $recordID       = ($recordID) + 1
-        }
-
-        Add-Content -Path $FilePath -value $myEntriesList
-        $this.ReloadHostData()
     }
 }
