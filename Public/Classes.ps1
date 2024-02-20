@@ -50,7 +50,7 @@ Class PSSTIG{
     $HOSTDATA = @{
         SQLServerInstance = @(
             [pscustomobject]@{ InstID = 1; Enclave = "DEVLAB" ;HostName = "DEV-SQL01"; NamedInstance  = $true; InstanceName = "SANDBOX01";   CheckListType = "SQLServerInstance"}
-            [pscustomobject]@{ InstID = 2; Enclave = "DEVLAB" ;HostName = "DEV-SPLT01"; NamedInstance  = $true; InstanceName = "SPOTLIGHT";   CheckListType = "SQLServerInstance"}
+            [pscustomobject]@{ InstID = 2; Enclave = "DEVLAB" ;HostName = "DEV-SPLT01"; NamedInstance  = $true; InstanceName = "INST01";   CheckListType = "SQLServerInstance"}
         )
     }
 
@@ -1055,3 +1055,76 @@ Class PSSTIGMANUAL{
         Invoke-WebRequest -Uri $myURL -OutFile $myFilePath
     }
 }
+Class STIGQUERY {
+    
+    [psobject]Select([hashtable]$fromSender){
+        $filesTable = Get-ChildItem -path $fromSender.SourceFolder
+        $isFound = $false
+        foreach($file in $filesTable){
+            if($file.basename -eq $fromSender.SourceFile){
+                $isFound = $true
+            }
+            if($isFound){
+                Clear-Host
+                $rawData  = Get-Content -path $file.FullName | convertfrom-csv
+                if($fromSender.Table){
+                    
+                    return $rawData | Format-Table -AutoSize
+                }else{
+                    return $rawData
+                }
+            }
+        }
+        Write-Error -Message "No matches found..."
+        return $Error[0]
+    }
+    [psobject]Update([hashtable]$fromSender){
+        $SourceFolder   = [string]($fromSender.SourceFolder)
+        $SourceFile     = [string]($fromSender.SourceFile)
+        $rawData = $this.Select(@{
+            SourceFolder    = $SourceFolder 
+            SourceFile      = $SourceFile  
+        })
+        $path = "{0}{1}.csv" -f $SourceFolder,$SourceFile 
+        $rawData = switch($SourceFile){
+            "Niper - SQL Server NetInfo"{
+                $FilterTable = $fromSender.Filter
+                $validList = $("InstanceName","HostName")
+
+                $filterValid = $false
+                foreach($filter in $FilterTable.keys){
+                    if($validList -contains $filter){
+                        $filterValid = $true
+                    }
+                }
+                if($filterValid){
+                    foreach($record in $rawData){
+
+                        if(($record | Select-Object -Property * | Where-Object {
+                            $_.HostName -eq $FilterTable.HostName -and $_.InstanceName -eq $FilterTable.InstanceName
+                        }).count -eq 1){
+                            $record.isApproved = $fromSender.Set.isApproved
+                            $record.ApprovedPort  = $fromSender.Set.ApprovedPort
+                        }
+                    }
+                    $rawData | ConvertTo-Csv 
+                }else{
+                    Write-Error -Message "No matches found...";$Error[0]
+                }
+            }
+        }
+        Set-Content -Value $rawData -path $path
+        if($fromSender.Reload){
+            $rawData = $this.Select(@{
+                SourceFolder    = $SourceFolder 
+                SourceFile      = $SourceFile
+                Table           = $true
+            })
+        }else{
+            $rawData = $null
+        }
+        return $rawData
+    }
+}
+
+

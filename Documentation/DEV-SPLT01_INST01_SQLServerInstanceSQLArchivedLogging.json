@@ -1,0 +1,11 @@
+{
+  "DEV-SPLT01_INST01_SQLServerInstance": [
+    {
+      "ArchiveInterval": "weekly",
+      "DirectlyWritesToArchive": false,
+      "IsNearRealTime": true,
+      "StorageLabel": "\\HostName\\SomeLocation",
+      "HasContinousConnection": true
+    }
+  ]
+}

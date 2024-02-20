@@ -1,0 +1,11 @@
+{
+  "DEV-SQL01_SANDBOX01_SQLServerInstance": [
+    {
+      "ArchiveInterval": "weekly",
+      "DirectlyWritesToArchive": false,
+      "IsNearRealTime": true,
+      "StorageLabel": "\\HostName\\SomeLocation",
+      "HasContinousConnection": true
+    }
+  ]
+}
