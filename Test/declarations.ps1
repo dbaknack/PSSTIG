@@ -735,6 +735,20 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     }
     Invoke-Finding213965 @FunctionParams
 }
+# ----------------------------------------------------------------------------------------#55
+$findingID = 'V-259739'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        FolderPath                  = "$env:HOMEPATH\Documents\Knowledge_Base\Sources_Library"
+        FileName                    = "\Niper - Server Installed Software.csv"
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+    }
+    Invoke-Finding259739 @FunctionParams
+}
 for ($i = 1; $i -le 100; $i++ ) {
     Write-Progress -Activity "Search in Progress" -Status "$i% Complete:" -PercentComplete $i
     Start-Sleep -Milliseconds 250

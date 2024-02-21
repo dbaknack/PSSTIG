@@ -323,6 +323,26 @@ Function Get-DocumentSourceSchema{
             })
             $Schema
         }
+        "Niper - Server Installed Software"{
+            $Schema = @{}
+            $Schema.Add("PropertyList",@("RecID",
+            "HostName",
+            "InstanceName",
+            "DisplayName",
+            "DisplayVersion",
+            "iSApproved"))
+            $Schema.Add("AsString",('"{0}"' -f ($Schema.PropertyList  -join '","')))
+
+            $Schema.Add("DefaultValues",[pscustomObject]@{
+                RecID           = 0
+                HostName        = [string]
+                InstanceName    = [string]
+                DisplayName     = [string]
+                DisplayVersion  = [string]
+                iSApproved      = $false
+            })
+            $Schema
+        }
         default {
             Write-Error -Message "$SourceName - does not have any defined schema or default values."
             #Approved SQLLogins List
@@ -9849,7 +9869,7 @@ Function Invoke-Finding213965{
         # when running remotly, session is included in the invocation
         if($REMOTE_FUNCTION){
             $invokeParams = @{
-                Session         = (Get-PSSession -Name $InstanceLevelParam.HostName)
+                Session         = $Session
                 ScriptBlock     = $ScriptBlock
                 ArgumentList    = $argumentList
                 ErrorAction     = 'Stop'
@@ -9993,40 +10013,323 @@ Function Invoke-Finding213965{
         }
     }
 }
+Function Invoke-Finding259739{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [switch]$DisplayStatus
+    )
+    begin{
 
+        # when this switch is true, the function will work in a remote scope, false to work in local scope
+        $REMOTE_FUNCTION    = $true
+        if($REMOTE_FUNCTION){ $establishedSession = [bool] }else{ $establishedSession = $null }
+
+        $ArgumentList = @{
+            #endregion - user set values
+            MyCommentList                   = @()
+            FindingStatus                   = [string]
+            FUNCTION_NAME                   = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+            FINDING_DESCRIPTION             = "SQL Server must protect against a user falsely repudiating by ensuring the NT AUTHORITY SYSTEM account is not used for administration."
+        }
+        $myScripts      = $PSSTIG.GetSQLQuery(@{
+            FindingID = $FindingID
+        })
+
+        $instanceNameList   = $CheckListName -split '_'
+        $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+        # this is what happens in the session scope
+        $ScriptBlock = {
+            param($argumentList)
+            $argumentList.MyCommentList += "{0} {1}" -f "Check performed by:",$env:USERNAME
+            $argumentList.MyCommentList += "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+            $argumentList.MyCommentList += " "
+            $argumentList.MyCommentList += "Description: "
+
+            # wen disabled, results are set from the check done
+  
+            foreach($script in $argumentList.Scripts.keys){
+                $argumentList.SQLCOmmandParams.Query = ("{0}" -f ($argumentList.Scripts.$script -join "`n"))
+
+                $mySQLCommandParams = @{
+                    ScriptBlock     = [scriptblock]::Create($argumentList.SQLInvokeCommand)
+                    ArgumentList    = $argumentList.SQLCOmmandParams
+                    ErrorAction     = "Stop"
+                }
+                $findingData =  Invoke-Command @mySQLCommandParams
+            }
+
+            $Listing = @()
+            $Listing += [pscustomobject]@{
+                Listing             = "Microsoft SQL Server 2016"
+                StartDate           = "Jun 1, 2016"
+                MainStreamEndData   = "Jul 13, 2021"
+                ExtendedDate        = "Jul 14, 2026"
+            }
+            $registryPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            $installedSoftware = Get-ItemProperty -Path $registryPath |
+            Where-Object {
+                $_.DisplayName -and $_.DisplayName -ne "Security Update" -and
+                $_.DisplayName -like '*SQL*' -and $_.DisplayName -notlike '*Security Update*'
+            } |
+            Select-Object DisplayName, DisplayVersion |
+            Sort-Object -Property DisplayName, DisplayVersion -Unique
+            $resultsTable = @{
+                InstalledSoftware   = $installedSoftware
+                SQLVersionCheck     = $findingData
+            }
+            return @{
+                Data     = $resultsTable
+                Comments = $argumentList.MyCommentList
+            }
+        }
+    }
+    process{
+
+        # sql command parameters get defined
+        $SQLCommandParams = @{
+            DatabaseName    = "master"
+            InstanceName    = $instanceName
+            Query           = $null
+        }
+
+        $ArgumentList.Add("Scripts",$myScripts)
+        # sql command parameters get added to the argument list
+        $ArgumentList.Add("SQLCOmmandParams",$SQLCommandParams)
+        $ArgumentList.Add("SQLInvokeCommand",${Function:Invoke-UDFSQLCommand})
+
+        # when running remotly, session is included in the invocation
+        if($REMOTE_FUNCTION){
+            $invokeParams = @{
+                Session         = (Get-PSSession -Name $InstanceLevelParam.HostName)
+                ScriptBlock     = $ScriptBlock
+                ArgumentList    = $argumentList
+                ErrorAction     = 'Stop'
+            }
+        }else{
+            $invokeParams = @{
+                ScriptBlock     = $ScriptBlock
+                ArgumentList    = $ArgumentList
+                ErrorAction     = 'Stop'
+            }
+        }
+
+        # it either will succeed or fail
+        #$invokeParams.ArgumentList
+        try{
+            $establishedSession = $true
+            $Finding = Invoke-Command @invokeParams
+        }catch{
+            $establishedSession = $false
+        }
+       
+        $myResult   = $Finding.Data
+        $myComments = $Finding.Comments
+        $myResult.SQLVersionCheck =  $myResult.SQLVersionCheck.Rows.Result    | ConvertFrom-Json
+        #if you cant reach instance
+        if($establishedSession -eq $false){
+            $myComments = @()
+            $findingStatus = "open"
+                $myComments += "{0} {1}" -f "Check performed by:",$env:USERNAME
+                $myComments += "{0} {1}" -f "Check was done on :",(get-date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+                $myComments += ' '
+                $myComments += 'Remarks:'
+                $myComments += "Was unable to perform check on instance '$instanceName', validate that the instance is running and is accessible."
+       
+                $PSSTIG.UpdateComment(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Comment         = ($myComments -join "`n")
+                })
+               
+                $PSSTIG.UpdateStatus(@{
+                    CheckListName   = $CheckListName
+                    FindingID       = $FindingID
+                    Status          = $findingStatus
+                })
+           
+                if($DisplayStatus){
+                    $PSSTIG.GetFindingInfo(@{
+                        CheckListName   = $CheckListName
+                        FindingID       = $FindingID
+                    })
+                }
+        }else{
+            $Check =[pscustomobject]@{Result =[int]}
+            
+
+            foreach($installedItem in $myResult.InstalledSoftware ){
+                if(($installedItem  | Select-Object -Property *  |
+                    Where-Object {$_.DisplayName -like "Microsoft SQL Server * (64-bit)"}).count -eq 1){
+                    $installedItem.DisplayVersion = $myResult.SQLVersionCheck.ProductVersion
+                }
+            }
+
+            $GetDocumentParams = @{
+                FolderPath = $FolderPath
+                FileName   = $FileName
+            }
+            $SourcePath = (Get-DocumentSource @GetDocumentParams)
+            $ReadDocumentParams = @{
+                DocumentSourcePath = $SourcePath
+            }
+            $myDocData = Read-DocumentSource @ReadDocumentParams
+            $Check = [pscustomobject]@{
+                Result        = [int]
+                Value         = $null
+            }
+   
+            # look in the documentation list for all host, not this host, in the given
+            $HostEntry = $myDocData.Data | Select-Object -Property * | Where-Object {$_.hostname -eq $HostName -and $_.instanceName -eq $instanceName}
+            if($null -eq $HostEntry){
+                $DefaultData = $myDocData.Schema.DefaultValues
+                if($myDocData.TotalEntries -eq 0){
+                    [int]$lastRecID =$DefaultData.RecID
+                }else{
+                    [int]$lastRecID = ($myDocData.data)[-1].RecID
+                }
+
+                $lastRecID = $lastRecID + 1
+                foreach($item in $myResult.InstalledSoftware){
+                    $displayVersion = $item.DisplayVersion
+                    
+                    $InsertItem = [pscustomobject]@{
+                        # use the last ID of an existsing entry
+                        RecID           = $lastRecID
+                        HostName        = $HostName
+                        InstanceName    = $instanceName
+                        DisplayName     = $item.DisplayName
+                        DisplayVersion  = $displayVersion
+                        isApproved      = $DefaultData.isApproved
+                    }
+                    $InsertString = '"{0}"' -f(@(
+                    $InsertItem.RecID
+                    $InsertItem.HostName
+                    $InsertItem.InstanceName
+                    $InsertItem.DisplayName
+                    $InsertItem.DisplayVersion
+                    $InsertItem.isApproved) -join '","')
+
+                    Add-Content -path $SourcePath -Value $InsertString
+                }
+            }
+            $myDocData = Read-DocumentSource @ReadDocumentParams
+            $myDocData = $myDocData.Data | Select-Object -Property * | Where-Object {$_.hostname -eq $HostName -and $_.instanceName -eq $InstanceName}
+
+            
+
+
+            if($Check.Result -eq 1){
+                $findingStatus = "open"
+                $myComments += (" ")
+            }
+       
+            if($Check.Result -eq 0){
+                $findingStatus = "not_a_finding"
+                $myComments += (" ")
+            }
+        }
+    }
+    end{
+        $PSSTIG.UpdateComment(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Comment         = ($myComments -join "`n")
+        })
+       
+        $PSSTIG.UpdateStatus(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+            Status          = $findingStatus
+        })
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
+
+
+# # Check the time source
+# $timeSource = w32tm /query /source
+
+# # Check if the computer is joined to a domain
+# $domainJoined = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.IsAccountSidEqualTo([System.Security.Principal.SecurityIdentifier]::new("S-1-5-18"))
+
+# # Initialize the result and comments
+# $result = $null
+# $comments = @()
+
+# # If not joined to a domain and time source is "Local CMOS Clock"
+# if (-not $domainJoined -and $timeSource -eq "Local CMOS Clock") {
+#     $result = "Finding"
+#     $comments += "The computer is not joined to a domain, and the time source is 'Local CMOS Clock'."
+# }
 
 
 # Function to get installed SQL software using registry
 # Function to get installed SQL software using registry# Function to get installed SQL software using registry
 # V-213948
-function Get-SqlInstalledSoftware {
-    param (
-        [string]$registryPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
-    )
-
-    $installedSoftware = Get-ItemProperty -Path $registryPath |
-    Where-Object {
-        $_.DisplayName -and $_.DisplayName -ne "Security Update" -and
-        $_.DisplayName -like '*SQL*' -and $_.DisplayName -notlike '*Security Update*'
-    } |
-    Select-Object DisplayName, DisplayVersion |
-    Sort-Object -Property DisplayName, DisplayVersion -Unique
-
-    return $installedSoftware
+$Listing = @()
+$Listing += [pscustomobject]@{
+    Listing             = "Microsoft SQL Server 2016"
+    StartDate           = "Jun 1, 2016"
+    MainStreamEndData   = "Jul 13, 2021"
+    ExtendedDate        = "Jul 14, 2026"
 }
-
-# Get all installed SQL software components
-$installedSqlSoftware = Get-SqlInstalledSoftware
-
-# Output the list of installed SQL software as PSCustomObject
-$installedSqlSoftware | ForEach-Object {
-    [PSCustomObject]@{
-        DisplayName = $_.DisplayName
-        DisplayVersion = $_.DisplayVersion
-    }
-}
+$registryPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+$installedSoftware = Get-ItemProperty -Path $registryPath |
+Where-Object {
+    $_.DisplayName -and $_.DisplayName -ne "Security Update" -and
+    $_.DisplayName -like '*SQL*' -and $_.DisplayName -notlike '*Security Update*'
+} |
+Select-Object DisplayName, DisplayVersion |
+Sort-Object -Property DisplayName, DisplayVersion -Unique
+$installedSoftware
 
 
+# $currentDate = Get-Date
+# foreach($installedItem in $installedSoftware){
+#     if($installedItem.DisplayName -like "Microsoft SQL Server 2016 (64-bit)"){
+#         $Dates = $Listing | Select-Object -Property * | Where-Object {$_.listing -eq "Microsoft SQL Server 2016"}
+#         if($currentDate -lt (Get-Date ($Dates.ExtendedDate))){
+#         }
+#     }
+# }
+
+# $dateString = "Jun 1, 2016"
+# $dateObject = Get-Date $dateString
+
+
+
+
+
+
+# # Invoke the API to get the support status
+# $result = Invoke-WebRequest -Uri $fullApiUrl
+# # Define a regular expression pattern to match <div> tags
+# $pattern = '<table[^>]*class="my-table"[^>]*>.*?<\/table>'
+# $result.Content -match ('.*td.*'){
+#     $matches[0]
+# }
+# # Use regex to match <div> tags
+# $matches = [regex]::Matches($result.content, $pattern)
+# $matches
+
+# # Display the matched <div> tags
+# foreach ($match in $matches) {
+#     Write-Host "Matched <div>: $($match.Value)"
+# }
+
+# # Display the result
+# Write-Host "Product: $($result.Product)"
+# Write-Host "Support Status: $($result.SupportPhase)"
+# Write-Host "End of Support Date: $($result.SupportEnd)"
 
 
 # #-------------- TESTING
@@ -10043,13 +10346,12 @@ $installedSqlSoftware | ForEach-Object {
 # $FindingData = Invoke-Command @invokeParams
 
 
+$instanceNameList   = $CheckListName -split '_'
+$instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
 
-$FindingID = "V-213965"
-$myScripts      = $PSSTIG.GetSQLQuery(@{
-    FindingID = $FindingID
-})
-$myScripts.s
-$results = @{}
+$FindingID  = "V-259739"
+$myScripts  = $PSSTIG.GetSQLQuery(@{FindingID = $FindingID})
+$results    = @{}
 foreach($script in $myScripts.keys){
     $SQLCommandParams = @{
         DatabaseName    = "master"
@@ -10066,8 +10368,7 @@ foreach($script in $myScripts.keys){
 
     $results.Add($script,(Invoke-Command @invokeParams))
 }
-($results.'V-213965'.rows[1].result | ConvertFrom-Json).result.databases
-$results.script_02
+($results.$FindingID.result | ConvertFrom-Json)
 
 
 $setupLogPath = "C:\Program Files\Microsoft SQL Server\130\Setup Bootstrap\Log"
