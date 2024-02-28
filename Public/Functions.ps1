@@ -100,6 +100,72 @@ Function Invoke-UDFSQLCommand{
     $sqlconnection.dispose()    # TO-DO: make sure the connection does close
     $resultsreturned
 }
+Function Invoke-PSSQL{
+    param([hashtable]$Params)
+
+    try{
+        $SQLScript  = (Get-Content -Path (Get-ChildItem -path $Params.SQLScriptFolder -Filter "$($Params.SQLScriptFile).sql").FullName) -join "`n"
+        $Params.ConnectionParams.Add("Query",$SQLScript)
+    }catch{
+        $Error[0] ; break
+    }
+    
+    
+    $InvokeParams = @{
+        Session         = $Params.Session
+        ArgumentList    = @{
+            Func        = ${Function:Invoke-UDFSQLCommand}
+            FuncParams  = $Params.ConnectionParams
+        }
+        ScriptBlock     = {
+            param($ArgumentList)
+            $ScriptBlock    = [scriptblock]::Create($ArgumentList.Func)
+            $ArgumentList   = $ArgumentList.FuncParams
+            Invoke-Command -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+        }
+    }
+    Invoke-Command @InvokeParams | select-object -Property * -ExcludeProperty "RunSpaceID"
+}
+Function Invoke-PSCMD{
+    param([hashtable]$Params)
+    begin{
+        try{
+            $PwshScript = (Get-Content -path (Get-ChildItem -path $Params.PowerShellScriptFolder -Filter "$($Params.PowerShellScriptFile).ps1").FullName) -join "`n"
+        }catch{
+            $Error[0]
+        }
+    }
+    process{
+        $results = $null
+        foreach($Session in $Params.Session){
+            $InvokeParams   = @{
+                Session         = $Session
+                ArgumentList    = @{
+                    Func        = $PwshScript
+                    FuncParams  = $Params.ArgumentList
+                }
+                ScriptBlock     = {
+                    param($ArgumentList)
+                    $ScriptBlock    = [scriptblock]::Create($ArgumentList.Func)
+                    $ArgumentList   = $ArgumentList.FuncParams
+                    Invoke-Command -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+                }
+            }
+
+            $results = switch($Params.AsJob){
+                $true   {
+                    (Invoke-Command @InvokeParams -AsJob | Out-Null)
+                }
+                $false  {
+                    (Invoke-Command @InvokeParams)
+                    }
+            }
+        }
+    }
+    end{
+        return $results
+    }
+}
 Function Get-TargetData{
     param(
         [string]$CheckListName,
@@ -142,7 +208,6 @@ Function Get-TargetData{
     $myCheckListDataConverted = $myCheckListData | ConvertTo-Json -Depth 5
     Set-Content -path  $myCheckListFile.FullName -Value $myCheckListDataConverted
 }
-
 Function Get-PSTIGModuleLocation{
     $myFunctionsPath = $PSCommandPath
     #TODO: on mac you wont be able to split on that separator
@@ -156,7 +221,6 @@ Function Get-PSTIGModuleLocation{
     }
     $modulePathList -join $mySeparator
 }
-
 Function Get-DocumentSource{
     param(
         [string]$FolderPath,
@@ -9801,6 +9865,8 @@ Function Invoke-Finding213965{
         [string]$HostName,
         [string]$FindingID,
         [psobject]$Session,
+        [string]$FolderPath,
+        [string]$FileName,
         [string]$CheckListName,
         [switch]$DisplayStatus
     )
@@ -10013,11 +10079,13 @@ Function Invoke-Finding213965{
         }
     }
 }
-Function Invoke-Finding259739{
+Function Invoke-Finding213956{
     param(
         [string]$HostName,
         [string]$FindingID,
         [psobject]$Session,
+        [string]$FolderPath,
+        [string]$FileName,
         [string]$CheckListName,
         [switch]$DisplayStatus
     )
@@ -10104,7 +10172,7 @@ Function Invoke-Finding259739{
         # when running remotly, session is included in the invocation
         if($REMOTE_FUNCTION){
             $invokeParams = @{
-                Session         = (Get-PSSession -Name $InstanceLevelParam.HostName)
+                Session         = $Session#(Get-PSSession -Name $InstanceLevelParam.HostName)
                 ScriptBlock     = $ScriptBlock
                 ArgumentList    = $argumentList
                 ErrorAction     = 'Stop'
@@ -10160,49 +10228,50 @@ Function Invoke-Finding259739{
         }else{
             $Check =[pscustomobject]@{Result =[int]}
             
-
             foreach($installedItem in $myResult.InstalledSoftware ){
-                if(($installedItem  | Select-Object -Property *  |
-                    Where-Object {$_.DisplayName -like "Microsoft SQL Server * (64-bit)"}).count -eq 1){
+                $productSQL = ($installedItem  | Select-Object -Property *  |
+                    Where-Object {$_.DisplayName -like "Microsoft SQL Server * (64-bit)"})
+                if($null -ne $productSQL){
                     $installedItem.DisplayVersion = $myResult.SQLVersionCheck.ProductVersion
                 }
+       
             }
 
-            $GetDocumentParams = @{
-                FolderPath = $FolderPath
-                FileName   = $FileName
-            }
-            $SourcePath = (Get-DocumentSource @GetDocumentParams)
-            $ReadDocumentParams = @{
-                DocumentSourcePath = $SourcePath
-            }
-            $myDocData = Read-DocumentSource @ReadDocumentParams
-            $Check = [pscustomobject]@{
-                Result        = [int]
-                Value         = $null
-            }
-   
-            # look in the documentation list for all host, not this host, in the given
-            $HostEntry = $myDocData.Data | Select-Object -Property * | Where-Object {$_.hostname -eq $HostName -and $_.instanceName -eq $instanceName}
-            if($null -eq $HostEntry){
+            # initalize document data
+            $GetDocumentParams  = @{FolderPath = $FolderPath ; FileName   = $FileName}
+            $SourcePath         = (Get-DocumentSource @GetDocumentParams)
+            $ReadDocumentParams = @{DocumentSourcePath = $SourcePath}
+            $myDocData          = Read-DocumentSource @ReadDocumentParams
+
+            # check if the data file has any data for this check
+            $hasData = $myDocData.Data | Select-Object -Property * | Where-Object {$_.HostName -eq $HostName -and $_.instanceName -eq $instanceName}
+
+            # when no data is present, load results in
+            if($null -eq $hasData){
+
+                # get the default data properties for the schema
                 $DefaultData = $myDocData.Schema.DefaultValues
+
+                # if the document has no entries
                 if($myDocData.TotalEntries -eq 0){
+
+                    # seed the record id, starting the default value
                     [int]$lastRecID =$DefaultData.RecID
                 }else{
+
+                    # otherwise use the last record entry value
                     [int]$lastRecID = ($myDocData.data)[-1].RecID
                 }
 
-                $lastRecID = $lastRecID + 1
+                # each record gets inserted
                 foreach($item in $myResult.InstalledSoftware){
-                    $displayVersion = $item.DisplayVersion
-                    
+                    $lastRecID  = $lastRecID + 1
                     $InsertItem = [pscustomobject]@{
-                        # use the last ID of an existsing entry
                         RecID           = $lastRecID
                         HostName        = $HostName
                         InstanceName    = $instanceName
                         DisplayName     = $item.DisplayName
-                        DisplayVersion  = $displayVersion
+                        DisplayVersion  = $item.DisplayVersion
                         isApproved      = $DefaultData.isApproved
                     }
                     $InsertString = '"{0}"' -f(@(
@@ -10212,22 +10281,24 @@ Function Invoke-Finding259739{
                     $InsertItem.DisplayName
                     $InsertItem.DisplayVersion
                     $InsertItem.isApproved) -join '","')
-
                     Add-Content -path $SourcePath -Value $InsertString
                 }
+                # data gets reloaded
+                $myDocData = Read-DocumentSource @ReadDocumentParams
             }
-            $myDocData = Read-DocumentSource @ReadDocumentParams
-            $myDocData = $myDocData.Data | Select-Object -Property * | Where-Object {$_.hostname -eq $HostName -and $_.instanceName -eq $InstanceName}
 
-            
-
-
-            if($Check.Result -eq 1){
+            $myDocData = $myDocData.Data | Select-Object -Property * | Where-Object {$_.hostname -eq $HostName -and $_.instanceName -eq $InstanceName -and $_.isApproved -eq 'False'}
+           
+            #   check is considered a finding when anything returned is not approved.
+            #   this will always be the case for new software.
+            if($myDocData.count -gt 0){
+                $Check.Result = 1
                 $findingStatus = "open"
                 $myComments += (" ")
             }
-       
-            if($Check.Result -eq 0){
+
+            if($myDocData.count -eq 0){
+                $Check.Result = 0
                 $findingStatus = "not_a_finding"
                 $myComments += (" ")
             }
@@ -10253,124 +10324,214 @@ Function Invoke-Finding259739{
         }
     }
 }
+Function Invoke-Finding213954{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [boolean]$SkipNonFinding = $true,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $functionName   = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
 
+        # get the checklistdata, initalize a comments array, and define the funciton name
+        $lastCheck      = $PSSTIG.GetFindingData(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+        })
+        
+        # by default, if the last status is not a finding, the check is skipped
+        if(($lastCheck.Status -eq 'not_a_finding') -and ($SkipNonFinding -eq $true)){
+            write-host 'check was previously not_a_finding, was skipped' -ForegroundColor Yellow
+            $skip = $true
+        }else{
+            write-host "check status was previously $($lastCheck.status)" -ForegroundColor Yellow
+            $skip = $false
+        }
 
-# # Check the time source
-# $timeSource = w32tm /query /source
-
-# # Check if the computer is joined to a domain
-# $domainJoined = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.IsAccountSidEqualTo([System.Security.Principal.SecurityIdentifier]::new("S-1-5-18"))
-
-# # Initialize the result and comments
-# $result = $null
-# $comments = @()
-
-# # If not joined to a domain and time source is "Local CMOS Clock"
-# if (-not $domainJoined -and $timeSource -eq "Local CMOS Clock") {
-#     $result = "Finding"
-#     $comments += "The computer is not joined to a domain, and the time source is 'Local CMOS Clock'."
-# }
-
-
-# Function to get installed SQL software using registry
-# Function to get installed SQL software using registry# Function to get installed SQL software using registry
-# V-213948
-$Listing = @()
-$Listing += [pscustomobject]@{
-    Listing             = "Microsoft SQL Server 2016"
-    StartDate           = "Jun 1, 2016"
-    MainStreamEndData   = "Jul 13, 2021"
-    ExtendedDate        = "Jul 14, 2026"
-}
-$registryPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
-$installedSoftware = Get-ItemProperty -Path $registryPath |
-Where-Object {
-    $_.DisplayName -and $_.DisplayName -ne "Security Update" -and
-    $_.DisplayName -like '*SQL*' -and $_.DisplayName -notlike '*Security Update*'
-} |
-Select-Object DisplayName, DisplayVersion |
-Sort-Object -Property DisplayName, DisplayVersion -Unique
-$installedSoftware
-
-
-# $currentDate = Get-Date
-# foreach($installedItem in $installedSoftware){
-#     if($installedItem.DisplayName -like "Microsoft SQL Server 2016 (64-bit)"){
-#         $Dates = $Listing | Select-Object -Property * | Where-Object {$_.listing -eq "Microsoft SQL Server 2016"}
-#         if($currentDate -lt (Get-Date ($Dates.ExtendedDate))){
-#         }
-#     }
-# }
-
-# $dateString = "Jun 1, 2016"
-# $dateObject = Get-Date $dateString
-
-
-
-
-
-
-# # Invoke the API to get the support status
-# $result = Invoke-WebRequest -Uri $fullApiUrl
-# # Define a regular expression pattern to match <div> tags
-# $pattern = '<table[^>]*class="my-table"[^>]*>.*?<\/table>'
-# $result.Content -match ('.*td.*'){
-#     $matches[0]
-# }
-# # Use regex to match <div> tags
-# $matches = [regex]::Matches($result.content, $pattern)
-# $matches
-
-# # Display the matched <div> tags
-# foreach ($match in $matches) {
-#     Write-Host "Matched <div>: $($match.Value)"
-# }
-
-# # Display the result
-# Write-Host "Product: $($result.Product)"
-# Write-Host "Support Status: $($result.SupportPhase)"
-# Write-Host "End of Support Date: $($result.SupportEnd)"
-
-
-# #-------------- TESTING
-# $scriptBlock = {
-#     Get-Content -Path "C:\Program Files\Microsoft SQL Server\130\Setup Bootstrap\Log\20200109_205540"
-# }
-# # test powershell command
-# $invokeParams = @{
-#     Session         = $Session
-#     ScriptBlock     = $ScriptBlock
-#     ArgumentList    = $ArgumentList
-#     ErrorAction     = 'Stop'
-# }
-# $FindingData = Invoke-Command @invokeParams
-
-
-$instanceNameList   = $CheckListName -split '_'
-$instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
-
-$FindingID  = "V-259739"
-$myScripts  = $PSSTIG.GetSQLQuery(@{FindingID = $FindingID})
-$results    = @{}
-foreach($script in $myScripts.keys){
-    $SQLCommandParams = @{
-        DatabaseName    = "master"
-        InstanceName    = $instanceName
-        Query           = ("{0}" -f (($myScripts.$script) -join "`n"))
+        if(-not($skip)){
+            # the current finding status is the last finding status
+            $findingStatus  = $lastCheck.status
+            
+            # instance names are defined off the checklistname
+            $instanceNameList   = $CheckListName -split '_'
+            $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+            if($instanceName -match '(.*)\\$'){
+                $instanceName = ($instanceName -split '\\')[0]
+            }
+            $comments  = @()
+        }
     }
+    process{
+        if(-not($skip)){
+            # handle failed connection to the instance
+            try{
+                $SQLQueryResult = Invoke-PSSQL @{
+                    Session             =   $Sessions[0]
+                    SQLScriptFolder     =   ".\PSSTIG\Private\SQLScripts"
+                    SQLScriptFile       =   $FindingID
+                    ConnectionParams    = @{
+                        InstanceName    =   $instanceName
+                        DatabaseName    =   "Master"
+                    }
+                }
+            }catch{
+                
+                # the function will stop if there is an error with the sql command
+                Write-Error -message $Error[0]
+            }
 
-    $invokeParams = @{
-        Session = (Get-PSSession -Name $InstanceLevelParam.HostName)
-        ScriptBlock = ${Function:Invoke-UDFSQLCommand}
-        ArgumentList  = $SQLCommandParams
-        ErrorAction  = 'Stop'
+            $check = (($SQLQueryResult.rows.Results)| ConvertFrom-Json).Result
+            
+            # comment are being added to array
+            $comments += "{0} {1}" -f "Check performed by:",$env:USERNAME
+            $comments += "{0} {1}" -f "Check was done on :",(Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+            $comments += "{0} {1}" -f "Check performed with powershell function",$functionName
+            $comments += "{0}" -f ' '
+            $comments += "{0}" -f "Remarks:"
+            $comments += "{0}" -f $check.comments
+            
+            # set finding status
+            $findingStatus = switch($check.value){
+                0       {'not_a_finding'}
+                1       {'open'}
+                default {'not_reviewed'}
+            }
+        }
     }
+    end{
+        if(-not($skip)){
+            # update the comments in the checklist file
+            $PSSTIG.UpdateComment(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+                Comment         = ($comments -join "`n")
+            })
+        
+            # update the status in the checklist file
+            $PSSTIG.UpdateStatus(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+                Status          = $findingStatus
+            })
+        }
 
-    $results.Add($script,(Invoke-Command @invokeParams))
+        # display the status from the checklist file
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
 }
-($results.$FindingID.result | ConvertFrom-Json)
+Function Invoke-Finding213966{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [boolean]$SkipNonFinding = $true,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $functionName   = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
 
+        # get the checklistdata, initalize a comments array, and define the funciton name
+        $lastCheck      = $PSSTIG.GetFindingData(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+        })
+        
+        # by default, if the last status is not a finding, the check is skipped
+        if(($lastCheck.Status -eq 'not_a_finding') -and ($SkipNonFinding -eq $true)){
+            write-host 'check was previously not_a_finding, was skipped' -ForegroundColor Yellow
+            $skip = $true
+        }else{
+            write-host "check status was previously $($lastCheck.status)" -ForegroundColor Yellow
+            $skip = $false
+        }
 
-$setupLogPath = "C:\Program Files\Microsoft SQL Server\130\Setup Bootstrap\Log"
-$logonUsers = Get-ChildItem -Recurse -Path $setupLogPath -Filter "Summary.txt" |
-              ForEach-Object { Get-Content $_.FullName | Select-String -Pattern "LogonUser =" }
+        if(-not($skip)){
+            # the current finding status is the last finding status
+            $findingStatus  = $lastCheck.status
+            
+            # instance names are defined off the checklistname
+            $instanceNameList   = $CheckListName -split '_'
+            $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+            # it's not a named instance
+            if($instanceName -match '(.*)\\$'){
+                $instanceName = ($instanceName -split '\\')[0]
+            }else{
+                $instanceName = ($instanceName -split '\\')[-1]
+            }
+            
+            $comments  = @()
+        }
+    }
+    process{
+        if(-not($skip)){
+            # handle failed connection to the instance
+            try{
+                $SQLQueryResult = Invoke-PSSQL @{
+                    Session             =   $Sessions[0]
+                    SQLScriptFolder     =   ".\PSSTIG\Private\SQLScripts"
+                    SQLScriptFile       =   $FindingID
+                    ConnectionParams    = @{
+                        InstanceName    =   $instanceName
+                        DatabaseName    =   "Master"
+                    }
+                }
+            }catch{
+                
+                # the function will stop if there is an error with the sql command
+                Write-Error -message $Error[0]
+            }
+
+            $check = (($SQLQueryResult.rows.Results)| ConvertFrom-Json).Result
+            
+            # comment are being added to array
+            $comments += "{0} {1}" -f "Check performed by:",$env:USERNAME
+            $comments += "{0} {1}" -f "Check was done on :",(Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+            $comments += "{0} {1}" -f "Check performed with powershell function",$functionName
+            $comments += "{0}" -f ' '
+            $comments += "{0}" -f "Remarks:"
+            $comments += "{0}" -f $check.comments
+            
+            # set finding status
+            $findingStatus = switch($check.value){
+                0       {'not_a_finding'}
+                1       {'open'}
+                default {'not_reviewed'}
+            }
+        }
+    }
+    end{
+        if(-not($skip)){
+            # update the comments in the checklist file
+            $PSSTIG.UpdateComment(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+                Comment         = ($comments -join "`n")
+            })
+        
+            # update the status in the checklist file
+            $PSSTIG.UpdateStatus(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+                Status          = $findingStatus
+            })
+        }
+
+        # display the status from the checklist file
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}

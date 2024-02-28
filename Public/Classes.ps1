@@ -76,6 +76,15 @@ Class PSSTIG{
         }
         Write-Host $returnMessage -ForegroundColor $messageColor
     }
+    [psobject]GetFindingData([hashtable]$fromSender){
+        $myCheckListName    = $fromSender.CheckListName
+        $myFindingID        = $fromSender.FindingID
+        $myCheckListData    = $this.GetCheckListData(@{
+            CheckListName = $myCheckListName
+        })
+        $myData = $myCheckListData.stigs.rules | Select-Object * |Where-Object {$_.group_id -eq $myFindingID}
+        return $myData
+    }
     [psobject]MyHostDataSet([hashtable]$fromSender){
 
         $myDataSource = $fromSender.DataSource

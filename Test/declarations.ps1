@@ -736,7 +736,7 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     Invoke-Finding213965 @FunctionParams
 }
 # ----------------------------------------------------------------------------------------#55
-$findingID = 'V-259739'
+$findingID = 'V-213956'
 foreach($InstanceLevelParam in $InstanceLevelParams){
     $FunctionParams = @{
         HostName                    = $InstanceLevelParam.HostName
@@ -747,13 +747,22 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
         CheckListName               = $InstanceLevelParam.CheckListName
         DisplayStatus               = $true
     }
-    Invoke-Finding259739 @FunctionParams
+    Invoke-Finding213956 @FunctionParams
 }
-for ($i = 1; $i -le 100; $i++ ) {
-    Write-Progress -Activity "Search in Progress" -Status "$i% Complete:" -PercentComplete $i
-    Start-Sleep -Milliseconds 250
+# ----------------------------------------------------------------------------------------#56
+$findingID = 'V-213954'
+$InstanceLevelParams = $InstanceLevelParams | Select-Object -Property * | Where-Object {$_.HostName -eq 'DEV-SQL01'}
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213954 @FunctionParams
 }
-
 
 
 
@@ -780,3 +789,38 @@ $STIGQUERY.Update(@{
             ApprovedPort    = "1433" 
         }
 })
+
+
+
+# here we pass in a list of sessions in to run a given command, with a set of parameters
+Invoke-PSCMD @{
+    Session                 = $Sessions[0]
+    PowerShellScriptFolder  = ".\PSSTIG\Private\Functions"
+    PowerShellScriptFile    = "V-213966"
+    ArgumentList            = @("SANDBOX01")
+    AsJob                   = $false
+};$results
+
+
+$results = Get-Job | Receive-Job -Wait  | Group-Object -Property "pscomputerName" -AsHashTable ; Get-Job | Remove-Job
+$results.Values
+
+# here we pass in one session with a set of parameters
+Invoke-PSCMD @{
+    Session                 = @($Sessions[1])
+    PowerShellScriptFolder  = "./POWERSHELLPLAYGROUND/PowerShellScripts"
+    PowerShellScriptFile    = "GetFolders"
+    ArgumentList            = @("C:\")
+    AsJob                   = $true
+}
+$results = Get-Job | Receive-Job -Wait  | Group-Object -Property "pscomputerName" -AsHashTable ; Get-Job | Remove-Job
+$results.values
+
+# here we pass is a session, but not as a job
+$results = Invoke-PSCMD @{
+    Session                 = @($Sessions[1])
+    PowerShellScriptFolder  = "./POWERSHELLPLAYGROUND/PowerShellScripts"
+    PowerShellScriptFile    = "GetFolders"
+    ArgumentList            = @("C:\")
+    AsJob                   = $false
+};$results
