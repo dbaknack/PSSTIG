@@ -10535,3 +10535,104 @@ Function Invoke-Finding213966{
         }
     }
 }
+Function Invoke-Finding214046{
+    param(
+        [string]$HostName,
+        [string]$FindingID,
+        [psobject]$Session,
+        [string]$CheckListName,
+        [boolean]$SkipNonFinding = $true,
+        [switch]$DisplayStatus
+    )
+    begin{
+        $functionName   = "Invoke-Finding{0}" -f ($FindingID.Split('-'))[-1]
+
+        # get the checklistdata, initalize a comments array, and define the funciton name
+        $lastCheck      = $PSSTIG.GetFindingData(@{
+            CheckListName   = $CheckListName
+            FindingID       = $FindingID
+        })
+        
+        # by default, if the last status is not a finding, the check is skipped
+        if(($lastCheck.Status -eq 'not_a_finding') -and ($SkipNonFinding -eq $true)){
+            write-host 'check was previously not_a_finding, was skipped' -ForegroundColor Yellow
+            $skip = $true
+        }else{
+            write-host "check status was previously $($lastCheck.status)" -ForegroundColor Yellow
+            $skip = $false
+        }
+
+        if(-not($skip)){
+            # the current finding status is the last finding status
+            $findingStatus  = $lastCheck.status
+            
+            # instance names are defined off the checklistname
+            $instanceNameList   = $CheckListName -split '_'
+            $instanceName       = "{0}\{1}" -f $instanceNameList[0],$instanceNameList[1]
+
+            # it's not a named instance
+            if($instanceName -match '(.*)\\$'){
+                $instanceName = ($instanceName -split '\\')[0]
+            }else{
+                $instanceName = ($instanceName -split '\\')[-1]
+            }
+            
+            $comments  = @()
+        }
+    }
+    process{
+        if(-not($skip)){
+            $check = @{
+                value = 2
+                comments = @(
+                    "The requirement emphasizes obscuring feedback of authentication information (e.g., displaying asterisks for passwords).",
+                    "While DBAs can enforce security policies within the database, they do not control the user interface or feedback mechanisms.",
+                    "The presentation layer (UI) handles feedback to users during authentication (e.g., displaying asterisks or other obfuscation techniques).",
+                    "DBAs are not involved in UI design or user interaction, so they cannot directly influence how feedback is presented.",
+                    "Therefore, the responsibility for implementing secure feedback mechanisms lies with UI designers, developers, and front-end engineers."
+                )
+            }
+            
+            # comment are being added to array
+            $comments += "{0} {1}" -f "Check performed by:",$env:USERNAME
+            $comments += "{0} {1}" -f "Check was done on :",(Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')
+            $comments += "{0} {1}" -f "Check performed with powershell function",$functionName
+            $comments += "{0}" -f ' '
+            $comments += "{0}" -f "Remarks:"
+            $comments += "{0}" -f ($check.comments -join "`n")
+            
+            # set finding status
+            $findingStatus = switch($check.value){
+                0       {'not_a_finding'}
+                1       {'open'}
+                2       {'not_applicable'}
+                default {'not_reviewed'}
+            }
+        }
+    }
+    end{
+        if(-not($skip)){
+            # update the comments in the checklist file
+            $PSSTIG.UpdateComment(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+                Comment         = ($comments -join "`n")
+            })
+        
+            # update the status in the checklist file
+            $PSSTIG.UpdateStatus(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+                Status          = $findingStatus
+            })
+        }
+
+        # display the status from the checklist file
+        if($DisplayStatus){
+            $PSSTIG.GetFindingInfo(@{
+                CheckListName   = $CheckListName
+                FindingID       = $FindingID
+            })
+        }
+    }
+}
