@@ -1,20 +1,20 @@
-$ErrorActionPreference = 'STOP'
+lr ; $ErrorActionPreference = 'STOP'
+
+#TODO:  might want to de-couple them at the invocation level
+# ps utilities is still dependant for PSSTIG to work on invocation.
+# not an issue for the most part, just need to run it first.
 Import-Module .\PSUTILITIES
 Import-Module .\PSSTIG      ; $PSSTIG    = PSSTIG
 Import-Module .\PSCONNECT
-
-
 <#
     Remove-Module PSSTIG
     Remove-Module PSUTILITIES
     Remove-Module PSCONNECT
 #>
 
+
 # runs the set up when first using tool
-$PSSTIG.Initalize(@{
-    ParentFolderPath    = '.\PSSTIG\Data'
-    DataSource          = 'SQLServerInstance'
-})
+$PSSTIG.Initalize(@{ParentFolderPath = '.\PSSTIG\Data';DataSource = 'SQLServerInstance'})
 
 # runs the set up when first using tool
 $PSSTIGVIEWER = PSSTIGVIEWER
@@ -24,27 +24,56 @@ $PSSTIGVIEWER.StopStigViewer()
 $PSSTIGVIEWER.RestartStigViewer()
 
 
-#   You might have used an incorrect password when defining the credentail and
-#------------------------------------------------------------------------------------
-$PSCONNECT      = (PSCONNECT)
-$myCreds        = Get-Credential
-$myCredAlias    = "DEV-ADM" 
+#	Initalizing PSCONNECT with custom path
+#	Note:
+#	SourceFolderName 	- the parent folder the file will be at
+#	SourceFileName 		- the name of the file, extension should be '.csv'
+$PSCONNECT_PARAMS = @{
+    SourceFolderName 	= "$env:HOMEPATH\Documents\Knowledge_Base\Sources_Library\PSCONNECT-Data"
+    SourceFileName		= "HOSTDATA.csv"
+}
+$PSCONNECT = PSCONNECT @PSCONNECT_PARAMS
 
-$PSCONNECT.StashCredentials(@{CredentialAlias = "DEV-ADM";Credentials     = $myCreds})
-$PSCONNECT.RemoveStashCredentials(@{CredentialAlias = $myCredAlias})
-$PSCONNECT.GetStashedCredentials(@{CredentialAlias = $myCredAlias})
-$PSCONNECT.GetHostData(@{All = $false})
-$PSCONNECT.CreateRemoteSession(@{Use = "Alias"})
-Get-PSSession
+#	Retrieve HostData:
+#	Note:
+#	entries in your file have a 'Enable' property
+#	when 'True' the host will be available to connect to
+#	when 'False' the host will not be avaible to connect to
+#	when the All parameter value is true, all entries regardless of the Enable value are returned
+#	when the All parameter value is false, only entries whos Enable value is true is returned
+$PSCONNECT.GetHostData(@{ALL = $true}) | Format-Table -Autosize
 
-# 4.0 -   define levels
-# how these are filtered needs to be reworked, but its ok for the moment...
+
+
+#	Stashing Credentials:
+#	Note:
+#	stashed credentials work by temporarily storing your credential
+#	in order to connect to a host as defined in your hostdata file
+#	the credentail alias from your stashed credentials is used
+#	Note:
+#	you may stash more then one credential, just not with the same
+#	credential alias
+$myCreds = Get-Credential
+$PSCONNECT.StashCredentials(@{CredentialAlias = "DEVLAB-CREDS";Credentials = $myCreds})
+$PSCONNECT.RemoveStashCredentials(@{CredentialAlias = "DEVLAB-CREDS"})
+#	Retreiving Stashed Creds:
+#	Note:
+#	stashed credentials can be retreived by using
+#	the credential alias
+$PSCONNECT.GetStashedCredentials(@{
+    CredentialAlias = "DEVLAB-CREDS"
+})
+
+$PSCONNECT.CreateRemoteSession(@{use = "Hostname"})
+
+# how do you want to work on the list of things?
 #------------------------------------------------------------------------------------
 $InstanceLevelParams = $PSSTIG.MyHostDataSet(@{DataSource = "SQLServerInstance";Level = "Instance"})
-$InstanceLevelParams.Count
+
 
 # 5.0 -   perform checks
 #----------------------------------------------------------------------------------------#1
+#TODO: need to move the documentation out 
 # Tested - good
 $findingID = 'V-213988'
 foreach($InstanceLevelParam in $InstanceLevelParams){
@@ -60,6 +89,7 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     Invoke-Finding213988  @FunctionParams
 }
 #----------------------------------------------------------------------------------------#2
+#TODO: need to move the documentation out 
 $findingID = 'V-213987'
 foreach($InstanceLevelParam in $InstanceLevelParams){
     $FunctionParams = @{
@@ -85,6 +115,7 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     Invoke-Finding214045 @FunctionParams
 }
 #----------------------------------------------------------------------------------------#4
+#TODO: need to document SQL browser
 $findingID = 'V-214042'
 foreach($InstanceLevelParam in $InstanceLevelParams){
     $FunctionParams = @{
@@ -98,6 +129,7 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     Invoke-Finding214042 @FunctionParams
 }
 #----------------------------------------------------------------------------------------#5
+#TODO: this one might benefit from documentation
 $findingID = 'V-214043'
 foreach($InstanceLevelParam in $InstanceLevelParams){
     $FunctionParams = @{
@@ -749,9 +781,8 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     }
     Invoke-Finding213956 @FunctionParams
 }
-# ----------------------------------------------------------------------------------------#56
+# ----------------------------------------------------------------------------------------#55
 $findingID = 'V-213954'
-$InstanceLevelParams = $InstanceLevelParams | Select-Object -Property * | Where-Object {$_.HostName -eq 'DEV-SQL01'}
 foreach($InstanceLevelParam in $InstanceLevelParams){
     $FunctionParams = @{
         HostName                    = $InstanceLevelParam.HostName
@@ -764,63 +795,570 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     Invoke-Finding213954 @FunctionParams
 }
 
-
-
-
-# <<- <<- <<- |- Query -| ->> ->> ->> ->> #
-
-$STIGQUERY = [STIGQUERY]::new()
-$STIGQUERY.Select(@{
-    SourceFolder    = @("C:\Users\abrah\Documents\Knowledge_Base\Sources_Library\")
-    SourceFile      = "Niper - SQL Server NetInfo"
-    Table           = $true
-})
-
-$STIGQUERY.Update(@{
-    Reload          = $true
-    SourceFolder    = @("C:\Users\abrah\Documents\Knowledge_Base\Sources_Library\")
-        SourceFile      = "Niper - SQL Server NetInfo"
-        Filter          = @{
-            HostName        = "DEV-SQL01"
-            InstanceName    = "SANDBOX01"
-        }
-        Set             = @{
-            isApproved      = "Dynamic"
-            ApprovedPort    = "1433" 
-        }
-})
-
-
-
-# here we pass in a list of sessions in to run a given command, with a set of parameters
-Invoke-PSCMD @{
-    Session                 = $Sessions[0]
-    PowerShellScriptFolder  = ".\PSSTIG\Private\Functions"
-    PowerShellScriptFile    = "V-213966"
-    ArgumentList            = @("SANDBOX01")
-    AsJob                   = $false
-};$results
-
-
-$results = Get-Job | Receive-Job -Wait  | Group-Object -Property "pscomputerName" -AsHashTable ; Get-Job | Remove-Job
-$results.Values
-
-# here we pass in one session with a set of parameters
-Invoke-PSCMD @{
-    Session                 = @($Sessions[1])
-    PowerShellScriptFolder  = "./POWERSHELLPLAYGROUND/PowerShellScripts"
-    PowerShellScriptFile    = "GetFolders"
-    ArgumentList            = @("C:\")
-    AsJob                   = $true
+# ----------------------------------------------------------------------------------------#56
+$findingID = 'V-214046'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        #SkipNonFinding             = $false
+    }
+    Invoke-Finding214046 @FunctionParams
 }
-$results = Get-Job | Receive-Job -Wait  | Group-Object -Property "pscomputerName" -AsHashTable ; Get-Job | Remove-Job
-$results.values
+# ----------------------------------------------------------------------------------------#57
+$findingID = 'V-213966'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        #SkipNonFinding             = $false
+    }
+    Invoke-Finding213966 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#58
+$findingID = 'V-213963'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        FolderPath                  = "$env:HOMEPATH\Documents\Knowledge_Base\Sources_Library"
+        FileName                    = "\Niper - Approved Shared Account.csv"
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213963 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#59
+$findingID = 'V-213985'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213985 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#60
+$findingID = 'V-213985'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213985 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#61
+$findingID = 'V-213984'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213984 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#62
+$findingID = 'V-213983'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213983 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#63
+$findingID = 'V-213982'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213982 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#64
+$findingID = 'V-213981'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213981 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#65
+$findingID = 'V-213942'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213942 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#66
+$findingID = 'V-213941'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213941 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#67
+$findingID = 'V-213953'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213953 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#68
+$findingID = 'V-213931'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213931 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#69
+$findingID = 'V-213980'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213980 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#70
+$findingID = 'V-213959'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213959 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#71
+$findingID = 'V-213932'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213932 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#72
+$findingID = 'V-213933'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213933 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#73
+$findingID = 'V-213951'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213951 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#74
+$findingID = 'V-213950'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213950 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#75
+$findingID = 'V-213952'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213952 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#76
+$findingID = 'V-213986'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213986 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#77
+$findingID = 'V-213955'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213955 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#78
+$findingID = 'V-213979'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213979 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#79
+$findingID = 'V-213978'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213978 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#80
+$findingID = 'V-213962'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213962 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#81
+$findingID = 'V-213977'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213977 @FunctionParams
+}
 
-# here we pass is a session, but not as a job
-$results = Invoke-PSCMD @{
-    Session                 = @($Sessions[1])
-    PowerShellScriptFolder  = "./POWERSHELLPLAYGROUND/PowerShellScripts"
-    PowerShellScriptFile    = "GetFolders"
-    ArgumentList            = @("C:\")
-    AsJob                   = $false
-};$results
+# ----------------------------------------------------------------------------------------#82
+$findingID = 'V-213970'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding             = $false
+    }
+    Invoke-Finding213970 @FunctionParams
+}
+
+# ----------------------------------------------------------------------------------------#83
+$findingID = 'V-213937'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213937 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#84
+$findingID = 'V-213976'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213976 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#85
+$findingID = 'V-213975'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213975 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#86
+$findingID = 'V-213961'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213961 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#87
+$findingID = 'V-213960'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213960 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#88
+$findingID = 'V-213939'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213939 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#89
+$findingID = 'V-213948'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213948 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#90
+$findingID = 'V-213940'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213940 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#91
+$findingID = 'V-213972'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213972 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#92
+$findingID = 'V-213944'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213944 @FunctionParams
+}
+
+# ----------------------------------------------------------------------------------------#93
+$findingID = 'V-213943'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213943 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#94
+$findingID = 'V-213957'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213957 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#95
+$findingID = 'V-213974'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213974 @FunctionParams
+}
+
+# ----------------------------------------------------------------------------------------#96
+$findingID = 'V-213973'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213973 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#97
+$findingID = 'V-213958'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213958 @FunctionParams
+}
+# ----------------------------------------------------------------------------------------#98
+$findingID = 'V-213971'
+foreach($InstanceLevelParam in $InstanceLevelParams){
+    $FunctionParams = @{
+        HostName                    = $InstanceLevelParam.HostName
+        FindingID                   = $findingID
+        Session                     = (Get-PSSession -Name $InstanceLevelParam.HostName)
+        CheckListName               = $InstanceLevelParam.CheckListName
+        DisplayStatus               = $true
+        SkipNonFinding              = $false
+    }
+    Invoke-Finding213971 @FunctionParams
+}
+
+
