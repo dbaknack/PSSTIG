@@ -1135,5 +1135,3 @@ Class STIGQUERY {
         return $rawData
     }
 }
-
-

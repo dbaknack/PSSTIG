@@ -1,8 +1,5 @@
-lr ; $ErrorActionPreference = 'STOP'
+lr ; $ErrorActionPreference = "STOP"
 
-#TODO:  might want to de-couple them at the invocation level
-# ps utilities is still dependant for PSSTIG to work on invocation.
-# not an issue for the most part, just need to run it first.
 Import-Module .\PSUTILITIES
 Import-Module .\PSSTIG      ; $PSSTIG    = PSSTIG
 Import-Module .\PSCONNECT
@@ -11,7 +8,6 @@ Import-Module .\PSCONNECT
     Remove-Module PSUTILITIES
     Remove-Module PSCONNECT
 #>
-
 
 # runs the set up when first using tool
 $PSSTIG.Initalize(@{ParentFolderPath = '.\PSSTIG\Data';DataSource = 'SQLServerInstance'})
@@ -24,46 +20,20 @@ $PSSTIGVIEWER.StopStigViewer()
 $PSSTIGVIEWER.RestartStigViewer()
 
 
-#	Initalizing PSCONNECT with custom path
-#	Note:
-#	SourceFolderName 	- the parent folder the file will be at
-#	SourceFileName 		- the name of the file, extension should be '.csv'
 $PSCONNECT_PARAMS = @{
     SourceFolderName 	= "$env:HOMEPATH\Documents\Knowledge_Base\Sources_Library\PSCONNECT-Data"
     SourceFileName		= "HOSTDATA.csv"
 }
 $PSCONNECT = PSCONNECT @PSCONNECT_PARAMS
 
-#	Retrieve HostData:
-#	Note:
-#	entries in your file have a 'Enable' property
-#	when 'True' the host will be available to connect to
-#	when 'False' the host will not be avaible to connect to
-#	when the All parameter value is true, all entries regardless of the Enable value are returned
-#	when the All parameter value is false, only entries whos Enable value is true is returned
+
 $PSCONNECT.GetHostData(@{ALL = $true}) | Format-Table -Autosize
 
 
-
-#	Stashing Credentials:
-#	Note:
-#	stashed credentials work by temporarily storing your credential
-#	in order to connect to a host as defined in your hostdata file
-#	the credentail alias from your stashed credentials is used
-#	Note:
-#	you may stash more then one credential, just not with the same
-#	credential alias
 $myCreds = Get-Credential
-$PSCONNECT.StashCredentials(@{CredentialAlias = "DEVLAB-CREDS";Credentials = $myCreds})
-$PSCONNECT.RemoveStashCredentials(@{CredentialAlias = "DEVLAB-CREDS"})
-#	Retreiving Stashed Creds:
-#	Note:
-#	stashed credentials can be retreived by using
-#	the credential alias
-$PSCONNECT.GetStashedCredentials(@{
-    CredentialAlias = "DEVLAB-CREDS"
-})
-
+$PSCONNECT.StashCredentials(@{CredentialAlias = "DEVLABCreds";Credentials = $myCreds})
+$PSCONNECT.RemoveStashCredentials(@{CredentialAlias = "DEVLABCreds"})
+$PSCONNECT.GetStashedCredentials(@{CredentialAlias = "DEVLABCreds"})
 $PSCONNECT.CreateRemoteSession(@{use = "Hostname"})
 
 # how do you want to work on the list of things?
@@ -1360,5 +1330,3 @@ foreach($InstanceLevelParam in $InstanceLevelParams){
     }
     Invoke-Finding213971 @FunctionParams
 }
-
-
